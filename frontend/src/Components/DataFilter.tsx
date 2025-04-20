@@ -13,6 +13,7 @@ import {
 } from '@mui/material';
 import DeleteIcon from '@mui/icons-material/Delete';
 import AddIcon from '@mui/icons-material/Add';
+import RestartAltIcon from '@mui/icons-material/RestartAlt';
 
 export interface FilterCondition {
   column: string;
@@ -56,11 +57,25 @@ const DataFilter: FC<DataFilterProps> = ({ columns, onFilterChange }) => {
     onFilterChange(newConditions);
   };
 
+  const handleReset = () => {
+    setConditions([{ column: '', operator: 'equals', value: '' }]);
+    onFilterChange([]);
+  };
+
   return (
     <Paper elevation={2} sx={{ p: 2, mt: 2 }}>
-      <Typography variant="h6" gutterBottom>
-        Filter Conditions
-      </Typography>
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+        <Typography variant="h6">Filter Conditions</Typography>
+        <Button
+          startIcon={<RestartAltIcon />}
+          onClick={handleReset}
+          variant="outlined"
+          color="secondary"
+          disabled={conditions.length === 1 && !conditions[0].column}
+        >
+          Reset Filters
+        </Button>
+      </Box>
       {conditions.map((condition, index) => (
         <Box key={index} sx={{ display: 'flex', gap: 2, mb: 2, alignItems: 'center' }}>
           <FormControl sx={{ minWidth: 120 }}>

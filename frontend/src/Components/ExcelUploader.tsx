@@ -1,5 +1,5 @@
 import React, { FC, useState, useMemo } from 'react';
-import { Box, Button, Typography, CircularProgress, Chip } from '@mui/material';
+import { Box, Button, Typography, CircularProgress, Chip, ThemeProvider, createTheme, Snackbar, Alert } from '@mui/material';
 import { DataGrid, GridColDef, GridToolbar } from '@mui/x-data-grid';
 import api from '../api';
 import DataFilter, { FilterCondition } from './DataFilter';
@@ -16,8 +16,14 @@ interface ExcelUploaderProps {
 const ExcelUploader: FC<ExcelUploaderProps> = ({ onData }) => {
   const [rows, setRows] = useState<RowData[]>([]);
   const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [filteredRows, setFilteredRows] = useState<RowData[]>([]);
   const [filterConditions, setFilterConditions] = useState<FilterCondition[]>([]);
+  const [snackbar, setSnackbar] = useState<{ open: boolean; message: string; severity: 'success' | 'error' }>({
+    open: false,
+    message: '',
+    severity: 'success',
+  });
 
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -38,8 +44,51 @@ const ExcelUploader: FC<ExcelUploaderProps> = ({ onData }) => {
       onData(data);
     } catch (error) {
       console.error('Error uploading file:', error);
+      setSnackbar({
+        open: true,
+        message: 'Error uploading file',
+        severity: 'error',
+      });
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleSaveToDatabase = async () => {
+    if (filteredRows.length === 0) {
+      setSnackbar({
+        open: true,
+        message: 'No data to save',
+        severity: 'error',
+      });
+      return;
+    }
+
+    setSaving(true);
+    try {
+      // Remove the id field before saving
+      const dataToSave = filteredRows.map(({ id, ...rest }) => rest);
+      
+      await api.post('save', { rows: dataToSave }, {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
+      
+      setSnackbar({
+        open: true,
+        message: 'Data saved successfully',
+        severity: 'success',
+      });
+    } catch (error) {
+      console.error('Error saving data:', error);
+      setSnackbar({
+        open: true,
+        message: 'Error saving data to database',
+        severity: 'error',
+      });
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -90,62 +139,131 @@ const ExcelUploader: FC<ExcelUploaderProps> = ({ onData }) => {
       } as GridColDef));
   }, [rows]);
 
+  const rtlTheme = createTheme({
+    direction: 'rtl',
+  });
+
   return (
-    <Box p={4}>
-      <Typography variant="h5">Upload & Preview</Typography>
-      <Button 
-        variant="contained" 
-        component="label" 
-        sx={{ mt: 2 }}
-        disabled={loading}
-      >
-        Upload File
-        <input
-          hidden
-          type="file"
-          accept=".xlsx,.csv"
-          onChange={handleUpload}
+    <ThemeProvider theme={rtlTheme}>
+      <Box p={4}>
+        <Typography variant="h5">Upload & Preview</Typography>
+        <Button 
+          variant="contained" 
+          component="label" 
+          sx={{ mt: 2 }}
           disabled={loading}
-        />
-      </Button>
-
-      {loading && (
-        <Box sx={{ display: 'flex', justifyContent: 'center', mt: 3 }}>
-          <CircularProgress />
-        </Box>
-      )}
-
-      {!loading && rows.length > 0 && (
-        <>
-          <DataFilter
-            columns={Object.keys(rows[0]).filter(key => key !== 'id')}
-            onFilterChange={(conditions) => {
-              setFilterConditions(conditions);
-              applyFilters(conditions);
-            }}
+        >
+          Upload File
+          <input
+            hidden
+            type="file"
+            accept=".xlsx,.csv"
+            onChange={handleUpload}
+            disabled={loading}
           />
-          <Box sx={{ mt: 2, display: 'flex', gap: 1, alignItems: 'center' }}>
-            <Typography variant="subtitle1">Total Rows:</Typography>
-            <Chip label={rows.length} color="primary" />
-            {filteredRows.length !== rows.length && (
-              <>
-                <Typography variant="subtitle1">Filtered Rows:</Typography>
-                <Chip label={filteredRows.length} color="secondary" />
-              </>
-            )}
+        </Button>
+
+        {loading && (
+          <Box sx={{ display: 'flex', justifyContent: 'center', mt: 3 }}>
+            <CircularProgress />
           </Box>
-          <Box sx={{ height: 500, mt: 2 }}>
-            <DataGrid
-              rows={filteredRows}
-              columns={columns}
-              slots={{ toolbar: GridToolbar }}
-              pageSizeOptions={[10, 25, 50]}
-              filterMode="client"
+        )}
+
+        {!loading && rows.length > 0 && (
+          <>
+            <DataFilter
+              columns={Object.keys(rows[0]).filter(key => key !== 'id')}
+              onFilterChange={(conditions) => {
+                setFilterConditions(conditions);
+                applyFilters(conditions);
+              }}
             />
-          </Box>
-        </>
-      )}
-    </Box>
+            <Box sx={{ mt: 2, display: 'flex', gap: 1, alignItems: 'center' }}>
+              <Typography variant="subtitle1">Total Rows:</Typography>
+              <Chip label={rows.length} color="primary" />
+              {filteredRows.length !== rows.length && (
+                <>
+                  <Typography variant="subtitle1">Filtered Rows:</Typography>
+                  <Chip label={filteredRows.length} color="secondary" />
+                </>
+              )}
+              <Button
+                variant="contained"
+                color="primary"
+                onClick={handleSaveToDatabase}
+                disabled={saving || filteredRows.length === 0}
+                sx={{ ml: 'auto' }}
+              >
+                {saving ? <CircularProgress size={24} /> : 'Save to Database'}
+              </Button>
+            </Box>
+            <Box sx={{ height: 500, mt: 2, direction: 'rtl' }}>
+              <DataGrid
+                rows={filteredRows}
+                columns={columns}
+                slots={{ toolbar: GridToolbar }}
+                pageSizeOptions={[10, 25, 50]}
+                filterMode="client"
+                density="compact"
+                sx={{
+                  '& .MuiDataGrid-virtualScroller': {
+                    left : 0
+                  },
+                  '& .MuiDataGrid-virtualScrollerContent': {
+                    direction: 'rtl',
+                  },
+                  '& .MuiDataGrid-row:nth-of-type(odd)': {
+                    backgroundColor: 'rgba(0, 0, 0, 0.02)',
+                  },
+                  '& .MuiDataGrid-cell': {
+                    py: 1,
+                    lineHeight: '1.5',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'flex-start',
+                    textAlign: 'right',
+                  },
+                  '& .MuiDataGrid-columnHeaders': {
+                    backgroundColor: 'rgba(0, 0, 0, 0.04)',
+                  },
+                  '& .MuiDataGrid-columnHeader': {
+                    py: 1,
+                    lineHeight: '1.5',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'flex-start',
+                    textAlign: 'right',
+                  },
+                  '& .MuiDataGrid-cellContent': {
+                    lineHeight: '1.5',
+                  },
+                  '& .MuiDataGrid-columnHeaderTitle': {
+                    textAlign: 'right',
+                  },
+                  '& .MuiDataGrid-columnSeparator': {
+                    display: 'none',
+                  },
+                }}
+              />
+            </Box>
+          </>
+        )}
+
+        <Snackbar
+          open={snackbar.open}
+          autoHideDuration={6000}
+          onClose={() => setSnackbar({ ...snackbar, open: false })}
+        >
+          <Alert
+            onClose={() => setSnackbar({ ...snackbar, open: false })}
+            severity={snackbar.severity}
+            sx={{ width: '100%' }}
+          >
+            {snackbar.message}
+          </Alert>
+        </Snackbar>
+      </Box>
+    </ThemeProvider>
   );
 };
 
