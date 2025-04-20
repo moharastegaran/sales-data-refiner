@@ -1,6 +1,7 @@
 import React, { FC, useState, useMemo } from 'react';
 import { Box, Button, Typography, CircularProgress, Chip, ThemeProvider, createTheme, Snackbar, Alert } from '@mui/material';
-import { DataGrid, GridColDef, GridToolbar } from '@mui/x-data-grid';
+import { DataGrid, GridColDef } from '@mui/x-data-grid';
+import { useNavigate } from 'react-router-dom';
 import api from '../api';
 import DataFilter, { FilterCondition } from './DataFilter';
 
@@ -14,6 +15,7 @@ interface ExcelUploaderProps {
 }
 
 const ExcelUploader: FC<ExcelUploaderProps> = ({ onData }) => {
+  const navigate = useNavigate();
   const [rows, setRows] = useState<RowData[]>([]);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -66,7 +68,6 @@ const ExcelUploader: FC<ExcelUploaderProps> = ({ onData }) => {
 
     setSaving(true);
     try {
-      // Remove the id field before saving
       const dataToSave = filteredRows.map(({ id, ...rest }) => rest);
       
       await api.post('save', { rows: dataToSave }, {
@@ -80,6 +81,8 @@ const ExcelUploader: FC<ExcelUploaderProps> = ({ onData }) => {
         message: 'Data saved successfully',
         severity: 'success',
       });
+      
+      navigate('/analysis');
     } catch (error) {
       console.error('Error saving data:', error);
       setSnackbar({
@@ -201,13 +204,12 @@ const ExcelUploader: FC<ExcelUploaderProps> = ({ onData }) => {
               <DataGrid
                 rows={filteredRows}
                 columns={columns}
-                slots={{ toolbar: GridToolbar }}
                 pageSizeOptions={[10, 25, 50]}
                 filterMode="client"
                 density="compact"
                 sx={{
                   '& .MuiDataGrid-virtualScroller': {
-                    left : 0
+                    left: 0
                   },
                   '& .MuiDataGrid-virtualScrollerContent': {
                     direction: 'rtl',

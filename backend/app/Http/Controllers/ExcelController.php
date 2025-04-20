@@ -129,4 +129,89 @@ class ExcelController extends Controller
 
         return Excel::download(new GroupedDataExport($groups, $headings), 'grouped_data.xlsx');
     }
+
+    public function analyze(Request $req)
+    {
+        try {
+            $params = $req->validate([
+                'groupBy' => 'required|array',
+                'groupBy.*' => 'required|string',
+                'aggregateColumn' => 'required|string',
+                'aggregateFunction' => 'required|string|in:sum,avg,count,min,max',
+                'operator' => 'required|string|in:>,<,>=,<=,=,!=',
+                'threshold' => 'required|numeric'
+            ]);
+
+            $query = DB::table('filtered_rows');
+
+            // Build the group by columns
+            $groupColumns = [];
+            foreach ($params['groupBy'] as $column) {
+                $groupColumns[] = "JSON_UNQUOTE(JSON_EXTRACT(data, '$.\"{$column}\"'))";
+                $query->selectRaw("JSON_UNQUOTE(JSON_EXTRACT(data, '$.\"{$column}\"')) AS `{$column}`");
+            }
+
+            // Add aggregate value and count
+            $query->selectRaw("{$params['aggregateFunction']}(JSON_EXTRACT(data, '$.\"{$params['aggregateColumn']}\"')) AS aggregate_value")
+                  ->selectRaw('COUNT(*) AS count');
+
+            // Apply threshold filter
+            $query->having('aggregate_value', $params['operator'], $params['threshold']);
+
+            // Group by all specified columns
+            $query->groupBy($params['groupBy']);
+
+            // Order by aggregate value in descending order
+            $results = $query->orderBy('aggregate_value', 'desc')->get();
+
+            return response()->json([
+                'success' => true,
+                'data' => $results,
+                'summary' => [
+                    'totalGroups' => $results->count(),
+                    'groupBy' => $params['groupBy'],
+                    'aggregateColumn' => $params['aggregateColumn'],
+                    'aggregateFunction' => $params['aggregateFunction'],
+                    'operator' => $params['operator'],
+                    'threshold' => $params['threshold']
+                ]
+            ]);
+
+        } catch (\Exception $e) {
+            \Log::error('Analysis error: ' . $e->getMessage());
+            return response()->json([
+                'success' => false,
+                'error' => 'Error performing analysis',
+                'message' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    public function getHeaders()
+    {
+        try {
+            // Get the first row from filtered_rows
+            $firstRow = DB::table('filtered_rows')
+                ->select('data')
+                ->first();
+
+            if (!$firstRow) {
+                return response()->json(['headers' => []]);
+            }
+
+            // Decode the JSON data
+            $data = json_decode($firstRow->data, true);
+            
+            // Get all keys from the data
+            $headers = array_keys($data);
+
+            return response()->json(['headers' => $headers]);
+        } catch (\Exception $e) {
+            \Log::error('Error fetching headers: ' . $e->getMessage());
+            return response()->json([
+                'error' => 'Error fetching headers',
+                'message' => $e->getMessage()
+            ], 500);
+        }
+    }
 }

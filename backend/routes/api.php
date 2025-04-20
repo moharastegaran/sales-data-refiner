@@ -20,3 +20,6 @@ Route::post('upload',       [ExcelController::class, 'upload']);
 Route::post('save',         [ExcelController::class, 'saveFiltered']);
 Route::get('groups',        [ExcelController::class, 'groups']);
 Route::get('export-groups', [ExcelController::class, 'exportGroups']);
+Route::post('analyze',      [ExcelController::class, 'analyze']);
+Route::post('/filter', [ExcelController::class, 'filter']);
+Route::get('/headers', [ExcelController::class, 'getHeaders']);
