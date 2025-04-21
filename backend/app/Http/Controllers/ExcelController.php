@@ -137,9 +137,7 @@ class ExcelController extends Controller
                 'groupBy' => 'required|array',
                 'groupBy.*' => 'required|string',
                 'aggregateColumn' => 'required|string',
-                'aggregateFunction' => 'required|string|in:sum,avg,count,min,max',
-                'operator' => 'required|string|in:>,<,>=,<=,=,!=',
-                'threshold' => 'required|numeric'
+                'aggregateFunction' => 'required|string|in:sum,avg,count,min,max'
             ]);
 
             $query = DB::table('filtered_rows');
@@ -155,9 +153,6 @@ class ExcelController extends Controller
             $query->selectRaw("{$params['aggregateFunction']}(JSON_EXTRACT(data, '$.\"{$params['aggregateColumn']}\"')) AS aggregate_value")
                   ->selectRaw('COUNT(*) AS count');
 
-            // Apply threshold filter
-            $query->having('aggregate_value', $params['operator'], $params['threshold']);
-
             // Group by all specified columns
             $query->groupBy($params['groupBy']);
 
@@ -171,12 +166,9 @@ class ExcelController extends Controller
                     'totalGroups' => $results->count(),
                     'groupBy' => $params['groupBy'],
                     'aggregateColumn' => $params['aggregateColumn'],
-                    'aggregateFunction' => $params['aggregateFunction'],
-                    'operator' => $params['operator'],
-                    'threshold' => $params['threshold']
+                    'aggregateFunction' => $params['aggregateFunction']
                 ]
             ]);
-
         } catch (\Exception $e) {
             \Log::error('Analysis error: ' . $e->getMessage());
             return response()->json([
@@ -210,6 +202,140 @@ class ExcelController extends Controller
             \Log::error('Error fetching headers: ' . $e->getMessage());
             return response()->json([
                 'error' => 'Error fetching headers',
+                'message' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    public function exportAnalysis(Request $req)
+    {
+        try {
+            $params = $req->validate([
+                'groupBy' => 'required|array',
+                'groupBy.*' => 'required|string',
+                'aggregateColumn' => 'required|string',
+                'aggregateFunction' => 'required|string|in:sum,avg,count,min,max'
+            ]);
+
+            $query = DB::table('filtered_rows');
+
+            // Build the group by columns
+            $groupColumns = [];
+            foreach ($params['groupBy'] as $column) {
+                $groupColumns[] = "JSON_UNQUOTE(JSON_EXTRACT(data, '$.\"{$column}\"'))";
+                $query->selectRaw("JSON_UNQUOTE(JSON_EXTRACT(data, '$.\"{$column}\"')) AS `{$column}`");
+            }
+
+            // Add aggregate value and count
+            $query->selectRaw("{$params['aggregateFunction']}(JSON_EXTRACT(data, '$.\"{$params['aggregateColumn']}\"')) AS aggregate_value")
+                  ->selectRaw('COUNT(*) AS count');
+
+            // Group by all specified columns
+            $query->groupBy($params['groupBy']);
+
+            // Order by first group column and aggregate value
+            $query->orderBy($params['groupBy'][0])
+                  ->orderBy('aggregate_value', 'desc');
+
+            $results = $query->get();
+
+            // Create Excel file
+            $spreadsheet = new \PhpOffice\PhpSpreadsheet\Spreadsheet();
+            $sheet = $spreadsheet->getActiveSheet();
+
+            // Set headers
+            $headers = array_merge($params['groupBy'], [
+                $params['aggregateFunction'] . '(' . $params['aggregateColumn'] . ')',
+                'Count'
+            ]);
+            $sheet->fromArray($headers, null, 'A1');
+
+            // Style headers
+            $headerStyle = [
+                'font' => ['bold' => true],
+                'fill' => [
+                    'fillType' => \PhpOffice\PhpSpreadsheet\Style\Fill::FILL_SOLID,
+                    'startColor' => ['rgb' => 'E0E0E0']
+                ]
+            ];
+            $sheet->getStyle('A1:' . \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex(count($headers)) . '1')
+                  ->applyFromArray($headerStyle);
+
+            // Add data with merged cells for primary groups
+            $row = 2;
+            $currentGroup = null;
+            $groupStartRow = $row;
+            
+            foreach ($results as $result) {
+                $primaryGroupValue = $result->{$params['groupBy'][0]};
+                
+                // If we're starting a new group
+                if ($currentGroup !== $primaryGroupValue) {
+                    // Merge cells for previous group if exists
+                    if ($currentGroup !== null && $row > $groupStartRow) {
+                        $sheet->mergeCells("A{$groupStartRow}:A" . ($row - 1));
+                    }
+                    
+                    $currentGroup = $primaryGroupValue;
+                    $groupStartRow = $row;
+                    
+                    // Style primary group cell
+                    $sheet->getStyle("A{$row}")->applyFromArray([
+                        'font' => ['bold' => true],
+                        'fill' => [
+                            'fillType' => \PhpOffice\PhpSpreadsheet\Style\Fill::FILL_SOLID,
+                            'startColor' => ['rgb' => 'F5F5F5']
+                        ]
+                    ]);
+                }
+
+                // Add row data
+                $data = [];
+                foreach ($params['groupBy'] as $column) {
+                    $data[] = $result->$column;
+                }
+                $data[] = $result->aggregate_value;
+                $data[] = $result->count;
+                $sheet->fromArray($data, null, 'A' . $row);
+                
+                $row++;
+            }
+
+            // Merge cells for the last group
+            if ($currentGroup !== null && $row > $groupStartRow) {
+                $sheet->mergeCells("A{$groupStartRow}:A" . ($row - 1));
+            }
+
+            // Add borders
+            $borderStyle = [
+                'borders' => [
+                    'allBorders' => [
+                        'borderStyle' => \PhpOffice\PhpSpreadsheet\Style\Border::BORDER_THIN
+                    ]
+                ]
+            ];
+            $sheet->getStyle('A1:' . \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex(count($headers)) . ($row - 1))
+                  ->applyFromArray($borderStyle);
+
+            // Auto-size columns
+            foreach (range('A', $sheet->getHighestColumn()) as $col) {
+                $sheet->getColumnDimension($col)->setAutoSize(true);
+            }
+
+            // Create Excel writer
+            $writer = new \PhpOffice\PhpSpreadsheet\Writer\Xlsx($spreadsheet);
+
+            // Save to temporary file
+            $tempFile = tempnam(sys_get_temp_dir(), 'analysis_');
+            $writer->save($tempFile);
+
+            // Return file
+            return response()->download($tempFile, 'analysis_results.xlsx')->deleteFileAfterSend(true);
+        } catch (\Exception $e) {
+            \Log::error('Export error: ' . $e->getMessage());
+            return response()->json([
+                'success' => false,
+                'error' => 'Error exporting analysis',
                 'message' => $e->getMessage()
             ], 500);
         }

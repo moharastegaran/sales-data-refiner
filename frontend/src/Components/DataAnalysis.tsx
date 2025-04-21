@@ -10,10 +10,17 @@ import {
   SelectChangeEvent,
   Chip,
   CircularProgress,
-  TextField,
-  Paper
+  Paper,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableRow,
+  IconButton,
+  Stack
 } from '@mui/material';
-import { DataGrid, GridColDef } from '@mui/x-data-grid';
+import { KeyboardArrowDown, KeyboardArrowUp, Download } from '@mui/icons-material';
 import { useData } from '../context/DataContext';
 import api from '../api';
 
@@ -28,9 +35,27 @@ interface AnalysisResult {
     groupBy: string[];
     aggregateColumn: string;
     aggregateFunction: string;
-    operator: string;
-    threshold: number;
   };
+}
+
+interface RowData {
+  [key: string]: any;
+  aggregate_value: number;
+  count: number;
+  subRows?: RowData[];
+}
+
+interface AnalysisItem {
+  [key: string]: any;
+  aggregate_value: number;
+  count: number;
+}
+
+interface GroupedData {
+  primaryKey: string;
+  items: AnalysisItem[];
+  totalAggregate: number;
+  totalCount: number;
 }
 
 const DataAnalysis: FC = () => {
@@ -40,9 +65,8 @@ const DataAnalysis: FC = () => {
   const [selectedGroupColumns, setSelectedGroupColumns] = useState<string[]>([]);
   const [aggregateColumn, setAggregateColumn] = useState<string>('');
   const [aggregateFunction, setAggregateFunction] = useState<string>('sum');
-  const [operator, setOperator] = useState<string>('>');
-  const [threshold, setThreshold] = useState<string>('0');
   const [availableColumns, setAvailableColumns] = useState<string[]>([]);
+  const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     const fetchData = async () => {
@@ -72,14 +96,6 @@ const DataAnalysis: FC = () => {
     setAggregateFunction(event.target.value);
   };
 
-  const handleOperatorChange = (event: SelectChangeEvent) => {
-    setOperator(event.target.value);
-  };
-
-  const handleThresholdChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    setThreshold(event.target.value);
-  };
-
   const handleAnalyze = async () => {
     if (selectedGroupColumns.length === 0 || !aggregateColumn) return;
 
@@ -88,12 +104,11 @@ const DataAnalysis: FC = () => {
       const response = await api.post('/analyze', {
         groupBy: selectedGroupColumns,
         aggregateColumn,
-        aggregateFunction,
-        operator,
-        threshold: parseFloat(threshold)
+        aggregateFunction
       });
 
       setAnalysisResult(response.data);
+      setExpandedRows(new Set());
     } catch (error) {
       console.error('Error analyzing data:', error);
     } finally {
@@ -101,38 +116,170 @@ const DataAnalysis: FC = () => {
     }
   };
 
-  const columns: GridColDef[] = useMemo(() => {
-    if (!analysisResult?.data.length) return [];
-    
-    const resultColumns: GridColDef[] = [];
-    
-    // Add grouping columns
-    analysisResult.summary.groupBy.forEach(column => {
-      resultColumns.push({
-        field: column,
-        headerName: column,
-        flex: 1,
-      });
+  const toggleRow = (rowId: string) => {
+    const newExpandedRows = new Set(expandedRows);
+    if (newExpandedRows.has(rowId)) {
+      newExpandedRows.delete(rowId);
+    } else {
+      newExpandedRows.add(rowId);
+    }
+    setExpandedRows(newExpandedRows);
+  };
+
+  const formatValue = (value: any) => {
+    if (typeof value === 'number') {
+      return value.toLocaleString();
+    }
+    return value;
+  };
+
+  const renderRow = (row: any, level: number = 0, parentId?: string) => {
+    const rowId = parentId ? `${parentId}-${row[selectedGroupColumns[level]]}` : row[selectedGroupColumns[0]];
+    const hasSubRows = level < selectedGroupColumns.length - 1;
+    const isExpanded = expandedRows.has(rowId);
+
+    return (
+      <React.Fragment key={rowId}>
+        <TableRow>
+          <TableCell>
+            {hasSubRows && (
+              <IconButton
+                size="small"
+                onClick={() => toggleRow(rowId)}
+                sx={{ mr: 1 }}
+              >
+                {isExpanded ? <KeyboardArrowUp /> : <KeyboardArrowDown />}
+              </IconButton>
+            )}
+            <span style={{ paddingLeft: level * 20 }}>
+              {row[selectedGroupColumns[level]]}
+            </span>
+          </TableCell>
+          <TableCell align="right">{formatValue(row.aggregate_value)}</TableCell>
+          <TableCell align="right">{formatValue(row.count)}</TableCell>
+        </TableRow>
+        {hasSubRows && isExpanded && row.subRows?.map((subRow: any) => 
+          renderRow(subRow, level + 1, rowId)
+        )}
+      </React.Fragment>
+    );
+  };
+
+  const processedData = useMemo<GroupedData[]>(() => {
+    if (!analysisResult?.data || selectedGroupColumns.length === 0) return [];
+
+    const groupedData = new Map<string, Omit<GroupedData, 'primaryKey'>>();
+    const primaryColumn = selectedGroupColumns[0];
+
+    analysisResult.data.forEach(row => {
+      const primaryValue = row[primaryColumn];
+      if (!groupedData.has(primaryValue)) {
+        groupedData.set(primaryValue, {
+          items: [],
+          totalAggregate: 0,
+          totalCount: 0
+        });
+      }
+      
+      const group = groupedData.get(primaryValue)!;
+      group.items.push(row);
+      group.totalAggregate += row.aggregate_value;
+      group.totalCount += row.count;
     });
 
-    // Add aggregate value and count
-    resultColumns.push(
-      {
-        field: 'aggregate_value',
-        headerName: `${analysisResult.summary.aggregateFunction}(${analysisResult.summary.aggregateColumn})`,
-        flex: 1,
-        type: 'number',
-      },
-      {
-        field: 'count',
-        headerName: 'Count',
-        flex: 1,
-        type: 'number',
-      }
-    );
+    return Array.from(groupedData.entries()).map(([key, value]) => ({
+      primaryKey: key,
+      ...value
+    }));
+  }, [analysisResult?.data, selectedGroupColumns]);
 
-    return resultColumns;
-  }, [analysisResult]);
+  const handleExport = async () => {
+    if (!analysisResult) return;
+
+    try {
+      const response = await api.post('/export-analysis', {
+        groupBy: selectedGroupColumns,
+        aggregateColumn,
+        aggregateFunction
+      }, {
+        responseType: 'blob'
+      });
+
+      // Create a URL for the blob
+      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', 'analysis_results.xlsx');
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+    } catch (error) {
+      console.error('Error exporting data:', error);
+    }
+  };
+
+  const renderTable = () => {
+    if (!processedData.length) return null;
+
+    return (
+      <TableContainer component={Paper} sx={{ mt: 2 }}>
+        <Table>
+          <TableHead>
+            <TableRow>
+              <TableCell sx={{ fontWeight: 'bold' }}>
+                {selectedGroupColumns[0]}
+              </TableCell>
+              {selectedGroupColumns.slice(1).map(col => (
+                <TableCell key={col} sx={{ fontWeight: 'bold' }}>
+                  {col}
+                </TableCell>
+              ))}
+              <TableCell align="right" sx={{ fontWeight: 'bold' }}>
+                {analysisResult!.summary.aggregateFunction.toUpperCase()}(
+                {analysisResult!.summary.aggregateColumn})
+              </TableCell>
+              <TableCell align="right" sx={{ fontWeight: 'bold' }}>
+                Count
+              </TableCell>
+            </TableRow>
+          </TableHead>
+          <TableBody>
+            {processedData.map((group: GroupedData) => (
+              <React.Fragment key={group.primaryKey}>
+                {group.items.map((item: AnalysisItem, index: number) => (
+                  <TableRow key={`${group.primaryKey}-${index}`}>
+                    {index === 0 && (
+                      <TableCell
+                        rowSpan={group.items.length}
+                        sx={{
+                          backgroundColor: 'rgba(0, 0, 0, 0.04)',
+                          fontWeight: 'bold',
+                          borderRight: '1px solid rgba(224, 224, 224, 1)'
+                        }}
+                      >
+                        {group.primaryKey}
+                      </TableCell>
+                    )}
+                    {selectedGroupColumns.slice(1).map(col => (
+                      <TableCell key={col}>
+                        {item[col]}
+                      </TableCell>
+                    ))}
+                    <TableCell align="right">
+                      {item.aggregate_value.toLocaleString()}
+                    </TableCell>
+                    <TableCell align="right">
+                      {item.count.toLocaleString()}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </React.Fragment>
+            ))}
+          </TableBody>
+        </Table>
+      </TableContainer>
+    );
+  };
 
   return (
     <Box p={4}>
@@ -199,34 +346,6 @@ const DataAnalysis: FC = () => {
             </FormControl>
           </Box>
 
-          <Box sx={{ flex: '1 1 30%', minWidth: 200 }}>
-            <FormControl fullWidth>
-              <InputLabel>Operator</InputLabel>
-              <Select
-                value={operator}
-                label="Operator"
-                onChange={handleOperatorChange}
-              >
-                <MenuItem value=">">Greater Than</MenuItem>
-                <MenuItem value="<">Less Than</MenuItem>
-                <MenuItem value=">=">Greater Than or Equal</MenuItem>
-                <MenuItem value="<=">Less Than or Equal</MenuItem>
-                <MenuItem value="=">Equal To</MenuItem>
-                <MenuItem value="!=">Not Equal To</MenuItem>
-              </Select>
-            </FormControl>
-          </Box>
-
-          <Box sx={{ flex: '1 1 30%', minWidth: 200 }}>
-            <TextField
-              fullWidth
-              label="Threshold"
-              type="number"
-              value={threshold}
-              onChange={handleThresholdChange}
-            />
-          </Box>
-
           <Box sx={{ width: '100%', mt: 2 }}>
             <Button 
               variant="contained" 
@@ -242,20 +361,25 @@ const DataAnalysis: FC = () => {
 
       {analysisResult && (
         <Paper sx={{ p: 3 }}>
-          <Typography variant="h6" gutterBottom>
-            Analysis Results
-          </Typography>
-          <Typography variant="body2" color="text.secondary" gutterBottom>
-            Total Groups: {analysisResult.summary.totalGroups}
-          </Typography>
-          <Box sx={{ height: 500, mt: 2 }}>
-            <DataGrid
-              rows={analysisResult.data}
-              columns={columns}
-              pageSizeOptions={[10, 25, 50]}
-              density="compact"
-            />
-          </Box>
+          <Stack direction="row" justifyContent="space-between" alignItems="center" mb={2}>
+            <Box>
+              <Typography variant="h6" gutterBottom>
+                Analysis Results
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                Total Groups: {analysisResult.summary.totalGroups}
+              </Typography>
+            </Box>
+            <Button
+              variant="outlined"
+              startIcon={<Download />}
+              onClick={handleExport}
+            >
+              Export to Excel
+            </Button>
+          </Stack>
+
+          {renderTable()}
         </Paper>
       )}
     </Box>
