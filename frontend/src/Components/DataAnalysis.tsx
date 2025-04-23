@@ -221,58 +221,152 @@ const DataAnalysis: FC = () => {
   const renderTable = () => {
     if (!processedData.length) return null;
 
+    // Helper function to group data by columns
+    const groupDataByColumns = (data: any[], columns: string[]): any[] => {
+      if (columns.length === 0) return data;
+
+      const grouped = new Map();
+      data.forEach(item => {
+        const key = item[columns[0]];
+        if (!grouped.has(key)) {
+          grouped.set(key, {
+            items: [],
+            value: key,
+            aggregateTotal: 0,
+            countTotal: 0
+          });
+        }
+        const group = grouped.get(key);
+        group.items.push(item);
+        group.aggregateTotal += item.aggregate_value;
+        group.countTotal += item.count;
+      });
+
+      // Recursively group remaining columns
+      return Array.from(grouped.values()).map(group => ({
+        ...group,
+        subGroups: columns.length > 1 
+          ? groupDataByColumns(group.items, columns.slice(1))
+          : null
+      }));
+    };
+
+    const groupedData = groupDataByColumns(analysisResult!.data, selectedGroupColumns);
+
+    // Render table header
+    const renderTableHeader = () => (
+      <TableHead>
+        <TableRow>
+          {selectedGroupColumns.map((col, index) => (
+            <TableCell key={col} sx={{ fontWeight: 'bold' }}>
+              {col}
+            </TableCell>
+          ))}
+          <TableCell align="right" sx={{ fontWeight: 'bold' }}>
+            {analysisResult!.summary.aggregateFunction.toUpperCase()}(
+            {analysisResult!.summary.aggregateColumn})
+          </TableCell>
+          <TableCell align="right" sx={{ fontWeight: 'bold' }}>
+            Count
+          </TableCell>
+        </TableRow>
+      </TableHead>
+    );
+
+    // Recursive function to render nested rows
+    const renderNestedRows = (
+      group: any, 
+      level: number = 0, 
+      parentRowSpans: number[] = []
+    ): React.ReactElement[] => {
+      const rows: React.ReactElement[] = [];
+      const isLeafLevel = level === selectedGroupColumns.length - 1;
+
+      if (isLeafLevel) {
+        // Render leaf level items
+        group.items.forEach((item: any, itemIndex: number) => {
+          rows.push(
+            <TableRow key={`${level}-${group.value}-${itemIndex}`}>
+              {itemIndex === 0 && parentRowSpans.map((span, i) => (
+                span > 0 && (
+                  <TableCell
+                    key={`parent-${i}`}
+                    rowSpan={span}
+                    sx={{
+                      backgroundColor: `rgba(0, 0, 0, ${0.04 - i * 0.01})`,
+                      fontWeight: 'bold',
+                      borderRight: '1px solid rgba(224, 224, 224, 1)'
+                    }}
+                  >
+                    {item[selectedGroupColumns[i]]}
+                  </TableCell>
+                )
+              ))}
+              {itemIndex === 0 && (
+                <TableCell
+                  rowSpan={group.items.length}
+                  sx={{
+                    backgroundColor: `rgba(0, 0, 0, ${0.04 - level * 0.01})`,
+                    paddingLeft: `${(level + 1) * 16}px`,
+                    borderRight: '1px solid rgba(224, 224, 224, 1)'
+                  }}
+                >
+                  {item[selectedGroupColumns[level]]}
+                </TableCell>
+              )}
+              <TableCell align="right">
+                {formatValue(item.aggregate_value)}
+              </TableCell>
+              <TableCell align="right">
+                {formatValue(item.count)}
+              </TableCell>
+            </TableRow>
+          );
+        });
+      } else {
+        // Render intermediate level groups
+        group.subGroups.forEach((subGroup: any, groupIndex: number) => {
+          const subGroupRows = renderNestedRows(
+            subGroup,
+            level + 1,
+            [...parentRowSpans, groupIndex === 0 ? group.items.length : 0]
+          );
+          
+          if (groupIndex === 0) {
+            rows.push(
+              <TableRow key={`${level}-${group.value}`}>
+                <TableCell
+                  rowSpan={group.items.length}
+                  sx={{
+                    backgroundColor: `rgba(0, 0, 0, ${0.04 - level * 0.01})`,
+                    fontWeight: 'bold',
+                    paddingLeft: `${(level + 1) * 16}px`,
+                    borderRight: '1px solid rgba(224, 224, 224, 1)'
+                  }}
+                >
+                  {group.value}
+                </TableCell>
+                {((subGroupRows[0] as React.ReactElement<any>).props.children as React.ReactNode[]).slice(1)}
+              </TableRow>
+            );
+            rows.push(...subGroupRows.slice(1));
+          } else {
+            rows.push(...subGroupRows);
+          }
+        });
+      }
+
+      return rows;
+    };
+
     return (
       <TableContainer component={Paper} sx={{ mt: 2 }}>
         <Table>
-          <TableHead>
-            <TableRow>
-              <TableCell sx={{ fontWeight: 'bold' }}>
-                {selectedGroupColumns[0]}
-              </TableCell>
-              {selectedGroupColumns.slice(1).map(col => (
-                <TableCell key={col} sx={{ fontWeight: 'bold' }}>
-                  {col}
-                </TableCell>
-              ))}
-              <TableCell align="right" sx={{ fontWeight: 'bold' }}>
-                {analysisResult!.summary.aggregateFunction.toUpperCase()}(
-                {analysisResult!.summary.aggregateColumn})
-              </TableCell>
-              <TableCell align="right" sx={{ fontWeight: 'bold' }}>
-                Count
-              </TableCell>
-            </TableRow>
-          </TableHead>
+          {renderTableHeader()}
           <TableBody>
-            {processedData.map((group: GroupedData) => (
-              <React.Fragment key={group.primaryKey}>
-                {group.items.map((item: AnalysisItem, index: number) => (
-                  <TableRow key={`${group.primaryKey}-${index}`}>
-                    {index === 0 && (
-                      <TableCell
-                        rowSpan={group.items.length}
-                        sx={{
-                          backgroundColor: 'rgba(0, 0, 0, 0.04)',
-                          fontWeight: 'bold',
-                          borderRight: '1px solid rgba(224, 224, 224, 1)'
-                        }}
-                      >
-                        {group.primaryKey}
-                      </TableCell>
-                    )}
-                    {selectedGroupColumns.slice(1).map(col => (
-                      <TableCell key={col}>
-                        {item[col]}
-                      </TableCell>
-                    ))}
-                    <TableCell align="right">
-                      {item.aggregate_value.toLocaleString()}
-                    </TableCell>
-                    <TableCell align="right">
-                      {item.count.toLocaleString()}
-                    </TableCell>
-                  </TableRow>
-                ))}
+            {groupedData.map((group, index) => (
+              <React.Fragment key={`group-${index}`}>
+                {renderNestedRows(group)}
               </React.Fragment>
             ))}
           </TableBody>
