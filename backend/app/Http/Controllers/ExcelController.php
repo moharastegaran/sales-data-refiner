@@ -214,7 +214,8 @@ class ExcelController extends Controller
                 'groupBy' => 'required|array',
                 'groupBy.*' => 'required|string',
                 'aggregateColumn' => 'required|string',
-                'aggregateFunction' => 'required|string|in:sum,avg,count,min,max'
+                'aggregateFunction' => 'required|string|in:sum,avg,count,min,max',
+                'customHeaders' => 'nullable|array'
             ]);
 
             $query = DB::table('filtered_rows');
@@ -243,11 +244,15 @@ class ExcelController extends Controller
             $spreadsheet = new \PhpOffice\PhpSpreadsheet\Spreadsheet();
             $sheet = $spreadsheet->getActiveSheet();
 
-            // Set headers
-            $headers = array_merge($params['groupBy'], [
-                $params['aggregateFunction'] . '(' . $params['aggregateColumn'] . ')',
-                'Count'
-            ]);
+            // Set headers with custom names if provided
+            $headers = [];
+            foreach ($params['groupBy'] as $column) {
+                $headers[] = $params['customHeaders'][$column] ?? $column;
+            }
+            $headers[] = $params['customHeaders']['count'] ?? 'Count';
+            $headers[] = $params['customHeaders'][$params['aggregateFunction'] . '(' . $params['aggregateColumn'] . ')'] 
+                        ?? $params['aggregateFunction'] . '(' . $params['aggregateColumn'] . ')';
+            
             $sheet->fromArray($headers, null, 'A1');
 
             // Style headers
@@ -294,8 +299,8 @@ class ExcelController extends Controller
                 foreach ($params['groupBy'] as $column) {
                     $data[] = $result->$column;
                 }
-                $data[] = $result->aggregate_value;
                 $data[] = $result->count;
+                $data[] = $result->aggregate_value;
                 $sheet->fromArray($data, null, 'A' . $row);
                 
                 $row++;

@@ -46,9 +46,10 @@ const ExcelUploader: FC<ExcelUploaderProps> = ({ onData }) => {
       onData(data);
     } catch (error) {
       console.error('Error uploading file:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Error uploading file';
       setSnackbar({
         open: true,
-        message: 'Error uploading file',
+        message: errorMessage,
         severity: 'error',
       });
     } finally {
@@ -85,9 +86,10 @@ const ExcelUploader: FC<ExcelUploaderProps> = ({ onData }) => {
       navigate('/analysis');
     } catch (error) {
       console.error('Error saving data:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Error saving data to database';
       setSnackbar({
         open: true,
-        message: 'Error saving data to database',
+        message: errorMessage,
         severity: 'error',
       });
     } finally {
