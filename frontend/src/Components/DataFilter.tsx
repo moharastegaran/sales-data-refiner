@@ -10,6 +10,9 @@ import {
   IconButton,
   Paper,
   Typography,
+  Chip,
+  OutlinedInput,
+  SelectChangeEvent,
 } from '@mui/material';
 import DeleteIcon from '@mui/icons-material/Delete';
 import AddIcon from '@mui/icons-material/Add';
@@ -18,7 +21,7 @@ import RestartAltIcon from '@mui/icons-material/RestartAlt';
 export interface FilterCondition {
   column: string;
   operator: string;
-  value: string;
+  value: string | string[];
 }
 
 interface DataFilterProps {
@@ -33,12 +36,24 @@ const operators = [
   { value: '<', label: 'Less Than' },
   { value: '>=', label: 'Greater Than or Equal' },
   { value: '<=', label: 'Less Than or Equal' },
+  { value: 'in', label: 'In List' },
 ];
 
 const DataFilter: FC<DataFilterProps> = ({ columns, onFilterChange }) => {
   const [conditions, setConditions] = useState<FilterCondition[]>([
     { column: '', operator: 'equals', value: '' },
   ]);
+  const [inputValues, setInputValues] = useState<{ [key: number]: string }>({});
+  const [columnValues, setColumnValues] = useState<{ [key: string]: string[] }>({});
+
+  useEffect(() => {
+    // Initialize column values
+    const initialValues: { [key: string]: string[] } = {};
+    columns.forEach(column => {
+      initialValues[column] = [];
+    });
+    setColumnValues(initialValues);
+  }, [columns]);
 
   const handleAddCondition = () => {
     setConditions([...conditions, { column: '', operator: 'equals', value: '' }]);
@@ -50,7 +65,7 @@ const DataFilter: FC<DataFilterProps> = ({ columns, onFilterChange }) => {
     onFilterChange(newConditions);
   };
 
-  const handleConditionChange = (index: number, field: keyof FilterCondition, value: string) => {
+  const handleConditionChange = (index: number, field: keyof FilterCondition, value: string | string[]) => {
     const newConditions = [...conditions];
     newConditions[index] = { ...newConditions[index], [field]: value };
     setConditions(newConditions);
@@ -60,6 +75,18 @@ const DataFilter: FC<DataFilterProps> = ({ columns, onFilterChange }) => {
   const handleReset = () => {
     setConditions([{ column: '', operator: 'equals', value: '' }]);
     onFilterChange([]);
+  };
+
+  const handleInputChange = (index: number, value: string) => {
+    setInputValues(prev => ({ ...prev, [index]: value }));
+    
+    const condition = conditions[index];
+    if (condition.operator === 'in') {
+      const values = value.split(',').map(v => v.trim()).filter(v => v !== '');
+      handleConditionChange(index, 'value', values);
+    } else {
+      handleConditionChange(index, 'value', value);
+    }
   };
 
   return (
@@ -108,23 +135,50 @@ const DataFilter: FC<DataFilterProps> = ({ columns, onFilterChange }) => {
             </Select>
           </FormControl>
 
-          <TextField
-            label="Value"
-            value={condition.value}
-            onChange={(e) => handleConditionChange(index, 'value', e.target.value)}
-            sx={{ flex: 1 }}
-          />
+          {condition.operator === 'in' ? (
+            <FormControl sx={{ flex: 1 }}>
+              <TextField
+                label="Values (comma-separated)"
+                value={inputValues[index] || ''}
+                onChange={(e) => handleInputChange(index, e.target.value)}
+                helperText="Enter multiple values separated by commas"
+                fullWidth
+              />
+              {Array.isArray(condition.value) && condition.value.length > 0 && (
+                <Box sx={{ mt: 1, display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+                  {condition.value.map((value, i) => (
+                    <Chip
+                      key={i}
+                      label={value}
+                      onDelete={() => {
+                        if (Array.isArray(condition.value)) {
+                          const newValues = condition.value.filter((_, idx) => idx !== i);
+                          handleConditionChange(index, 'value', newValues);
+                        }
+                      }}
+                    />
+                  ))}
+                </Box>
+              )}
+            </FormControl>
+          ) : (
+            <TextField
+              label="Value"
+              value={Array.isArray(condition.value) ? condition.value.join(', ') : condition.value}
+              onChange={(e) => handleInputChange(index, e.target.value)}
+              sx={{ flex: 1 }}
+            />
+          )}
 
           <IconButton
             onClick={() => handleRemoveCondition(index)}
-            color="error"
             disabled={conditions.length === 1}
+            color="error"
           >
             <DeleteIcon />
           </IconButton>
         </Box>
       ))}
-
       <Button
         startIcon={<AddIcon />}
         onClick={handleAddCondition}
