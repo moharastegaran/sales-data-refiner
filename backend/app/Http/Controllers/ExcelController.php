@@ -77,7 +77,9 @@ class ExcelController extends Controller
 
         FilteredRow::truncate();
         foreach ($data['rows'] as $row) {
-            FilteredRow::create(['data' => $row]);
+            // Store the data as a JSON string with unescaped Unicode
+            $jsonData = json_encode($row, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+            FilteredRow::create(['data' => $jsonData]);
         }
 
         return response()->json(['stored' => count($data['rows'])]);
@@ -96,7 +98,7 @@ class ExcelController extends Controller
             ->selectRaw('COUNT(*) AS count');
 
         if ($a) {
-            $q->selectRaw("SUM(JSON_EXTRACT(data, '$.\"{$a}\"')) AS sum_{$a}")
+            $q->selectRaw("SUM(CAST(JSON_EXTRACT(data, '$.\"{$a}\"') AS DECIMAL(10,2))) AS sum_{$a}")
               ->having("sum_{$a}", $op, $th);
         }
 
@@ -191,8 +193,12 @@ class ExcelController extends Controller
                 return response()->json(['headers' => []]);
             }
 
-            // Decode the JSON data
+            // Decode the JSON string
             $data = json_decode($firstRow->data, true);
+            
+            if (!$data) {
+                return response()->json(['headers' => []]);
+            }
             
             // Get all keys from the data
             $headers = array_keys($data);

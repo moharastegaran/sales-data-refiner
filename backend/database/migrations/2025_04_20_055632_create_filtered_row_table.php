@@ -13,7 +13,7 @@ return new class extends Migration
     {
         Schema::create('filtered_rows', function (Blueprint $table) {
             $table->id();
-            $table->json('data');
+            $table->text('data');
             $table->timestamps();
         });
     }
