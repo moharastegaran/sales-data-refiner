@@ -1,5 +1,5 @@
 import React, { FC, useState, useMemo } from 'react';
-import { Box, Button, Typography, CircularProgress, Chip, ThemeProvider, createTheme, Snackbar, Alert, FormControl, InputLabel, Select, MenuItem } from '@mui/material';
+import { Box, Button, Typography, CircularProgress, Chip, ThemeProvider, createTheme, Snackbar, Alert, FormControl, InputLabel, Select, MenuItem, Dialog, DialogTitle, DialogContent, DialogActions, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Paper, TextField } from '@mui/material';
 import { DataGrid, GridColDef } from '@mui/x-data-grid';
 import { useNavigate } from 'react-router-dom';
 import UploadFileIcon from '@mui/icons-material/UploadFile';
@@ -30,6 +30,12 @@ const ExcelUploader: FC<ExcelUploaderProps> = ({ onData }) => {
     message: '',
     severity: 'success',
   });
+  const [dateColumn, setDateColumn] = useState<string>('');
+  const [showDatePreview, setShowDatePreview] = useState(false);
+  const [previewData, setPreviewData] = useState<RowData[]>([]);
+  const [dateSplitApplied, setDateSplitApplied] = useState(false);
+  const [customColumnValue, setCustomColumnValue] = useState<string>('');
+  const [customColumnName, setCustomColumnName] = useState<string>('');
 
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -41,7 +47,6 @@ const ExcelUploader: FC<ExcelUploaderProps> = ({ onData }) => {
       formData.append('file', file);
       setUploadedFile(file);
 
-      // First get the list of sheets
       const sheetsResponse = await api.post<string[]>('get-sheets', formData, {
         headers: { 'Content-Type': 'multipart/form-data' }
       });
@@ -49,7 +54,6 @@ const ExcelUploader: FC<ExcelUploaderProps> = ({ onData }) => {
       setSheets(sheetsResponse.data);
       if (sheetsResponse.data.length > 0) {
         setSelectedSheet(sheetsResponse.data[0]);
-        // Automatically load the first sheet
         await handleSheetSelect(sheetsResponse.data[0]);
       }
     } catch (error) {
@@ -78,11 +82,22 @@ const ExcelUploader: FC<ExcelUploaderProps> = ({ onData }) => {
         headers: { 'Content-Type': 'multipart/form-data' }
       });
 
-      const data = res.data.map((row: RowData, idx: number) => ({ ...row, id: idx }));
+      let data = res.data.map((row: RowData, idx: number) => ({ ...row, id: idx }));
+      
+      // Add custom column if values are set
+      if (customColumnName && customColumnValue) {
+        data = data.map(row => ({
+          ...row,
+          [customColumnName]: customColumnValue
+        }));
+      }
+
       setRows(data);
       setFilteredRows(data);
       onData(data);
       setSelectedSheet(sheetName);
+      setDateSplitApplied(false);
+      setDateColumn('');
     } catch (error) {
       console.error('Error loading sheet:', error);
       const errorMessage = error instanceof Error ? error.message : 'Error loading sheet';
@@ -93,6 +108,26 @@ const ExcelUploader: FC<ExcelUploaderProps> = ({ onData }) => {
       });
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleDateColumnSelect = (column: string) => {
+    setDateColumn(column);
+    if (rows.length > 0) {
+      const updatedRows = rows.map(row => {
+        const dateStr = String(row[column]);
+        return {
+          ...row,
+          [`${column}_year`]: dateStr.substring(0, 4),
+          [`${column}_month`]: dateStr.substring(4, 6),
+          [`${column}_day`]: dateStr.substring(6, 8)
+        };
+      });
+      
+      setRows(updatedRows);
+      setFilteredRows(updatedRows);
+      onData(updatedRows);
+      setDateSplitApplied(true);
     }
   };
 
@@ -267,8 +302,56 @@ const ExcelUploader: FC<ExcelUploaderProps> = ({ onData }) => {
           </FormControl>
         )}
 
-        {!loading && rows.length > 0 && (
-          <>
+          {!loading && rows.length > 0 && (
+            <>
+              <Paper elevation={2} sx={{ p: 2, mt: 2 }}>
+              <Box sx={{ mt: 2, display: 'flex', gap: 2, alignItems: 'end' }}>
+              <Typography variant="h6" sx={{ mb: 2, mt : 2, minWidth: 200 }}>Add Custom Column</Typography>
+                <TextField
+                  label="New Column Name"
+                  value={customColumnName}
+                  onChange={(e) => setCustomColumnName(e.target.value)}
+                  sx={{ width : 200 }}
+                  placeholder="Enter new column name"
+                />
+                <TextField
+                  label="Column Value"
+                  value={customColumnValue}
+                  onChange={(e) => setCustomColumnValue(e.target.value)}
+                  sx={{ width : 200 }}
+                  placeholder="Enter value for all rows"
+                />
+                <Button
+                  variant="contained"
+                  sx={{ minWidth : 100 }}
+                  onClick={() => handleSheetSelect(selectedSheet)}
+                  disabled={!customColumnName || !customColumnValue}
+                >
+                  Add Column
+                </Button>
+              </Box>
+            {!dateSplitApplied && (
+            <Box sx={{ mt: 2, display: 'flex', gap: 2, alignItems: 'center', textAlign: 'left' }}>
+              <Typography variant="h6" sx={{ mb: 2, minWidth: 200 }}>Select Date Column</Typography>
+              <FormControl sx={{ width : 200 }}>
+                <InputLabel>Date Column</InputLabel>
+                <Select
+                  value={dateColumn}
+                  label="Date Column"
+                  onChange={(e) => handleDateColumnSelect(e.target.value)}
+                >
+                  {Object.keys(rows[0])
+                    .filter(key => key !== 'id')
+                    .map((column) => (
+                      <MenuItem key={column} value={column}>
+                        {column}
+                      </MenuItem>
+                    ))}
+                </Select>
+              </FormControl>
+            </Box>
+          )}
+            </Paper>
             <DataFilter
               columns={Object.keys(rows[0]).filter(key => key !== 'id')}
               onFilterChange={(conditions) => {
