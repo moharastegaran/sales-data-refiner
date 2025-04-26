@@ -351,4 +351,70 @@ class ExcelController extends Controller
             ], 500);
         }
     }
+
+    public function getSheets(Request $req)
+    {
+        try {
+            $req->validate(['file' => 'required|file|mimes:xlsx,csv']);
+            $file = $req->file('file');
+
+            $spreadsheet = \PhpOffice\PhpSpreadsheet\IOFactory::load($file);
+            $sheets = $spreadsheet->getSheetNames();
+
+            return response()->json($sheets);
+        } catch (\Exception $e) {
+            \Log::error('Error getting sheets: ' . $e->getMessage());
+            return response()->json([
+                'error' => 'Error processing file',
+                'message' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    public function uploadSheet(Request $req)
+    {
+        try {
+            $req->validate([
+                'file' => 'required|file|mimes:xlsx,csv',
+                'sheet' => 'required|string'
+            ]);
+
+            $file = $req->file('file');
+            $sheetName = $req->input('sheet');
+
+            $spreadsheet = \PhpOffice\PhpSpreadsheet\IOFactory::load($file);
+            $worksheet = $spreadsheet->getSheetByName($sheetName);
+            
+            if (!$worksheet) {
+                return response()->json(['error' => 'Sheet not found'], 404);
+            }
+
+            $collection = collect($worksheet->toArray());
+            if ($collection->isEmpty()) {
+                return response()->json(['error' => 'Sheet is empty'], 400);
+            }
+
+            $collection = $collection->take(1000);
+            $headers = $collection->shift();
+
+            $rows = $collection
+                ->map(function($row) use ($headers) {
+                    try {
+                        return array_combine($headers, $row);
+                    } catch (\Exception $e) {
+                        \Log::error('Row processing error: ' . $e->getMessage());
+                        throw $e;
+                    }
+                })
+                ->toArray();
+
+            return response()->json($rows);
+        } catch (\Exception $e) {
+            \Log::error('Excel upload error: ' . $e->getMessage());
+            return response()->json([
+                'error' => 'Error processing file',
+                'message' => $e->getMessage()
+            ], 500);
+        }
+    }
 }

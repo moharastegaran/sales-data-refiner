@@ -1,5 +1,5 @@
 import React, { FC, useState, useMemo } from 'react';
-import { Box, Button, Typography, CircularProgress, Chip, ThemeProvider, createTheme, Snackbar, Alert } from '@mui/material';
+import { Box, Button, Typography, CircularProgress, Chip, ThemeProvider, createTheme, Snackbar, Alert, FormControl, InputLabel, Select, MenuItem } from '@mui/material';
 import { DataGrid, GridColDef } from '@mui/x-data-grid';
 import { useNavigate } from 'react-router-dom';
 import api from '../api';
@@ -21,6 +21,9 @@ const ExcelUploader: FC<ExcelUploaderProps> = ({ onData }) => {
   const [saving, setSaving] = useState(false);
   const [filteredRows, setFilteredRows] = useState<RowData[]>([]);
   const [filterConditions, setFilterConditions] = useState<FilterCondition[]>([]);
+  const [sheets, setSheets] = useState<string[]>([]);
+  const [selectedSheet, setSelectedSheet] = useState<string>('');
+  const [uploadedFile, setUploadedFile] = useState<File | null>(null);
   const [snackbar, setSnackbar] = useState<{ open: boolean; message: string; severity: 'success' | 'error' }>({
     open: false,
     message: '',
@@ -35,8 +38,42 @@ const ExcelUploader: FC<ExcelUploaderProps> = ({ onData }) => {
     try {
       const formData = new FormData();
       formData.append('file', file);
+      setUploadedFile(file);
 
-      const res = await api.post<RowData[]>('upload', formData, {
+      // First get the list of sheets
+      const sheetsResponse = await api.post<string[]>('get-sheets', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      });
+      
+      setSheets(sheetsResponse.data);
+      if (sheetsResponse.data.length > 0) {
+        setSelectedSheet(sheetsResponse.data[0]);
+        // Automatically load the first sheet
+        await handleSheetSelect(sheetsResponse.data[0]);
+      }
+    } catch (error) {
+      console.error('Error getting sheets:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Error processing file';
+      setSnackbar({
+        open: true,
+        message: errorMessage,
+        severity: 'error',
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSheetSelect = async (sheetName: string) => {
+    if (!uploadedFile) return;
+    
+    setLoading(true);
+    try {
+      const formData = new FormData();
+      formData.append('file', uploadedFile);
+      formData.append('sheet', sheetName);
+
+      const res = await api.post<RowData[]>('upload-sheet', formData, {
         headers: { 'Content-Type': 'multipart/form-data' }
       });
 
@@ -44,9 +81,10 @@ const ExcelUploader: FC<ExcelUploaderProps> = ({ onData }) => {
       setRows(data);
       setFilteredRows(data);
       onData(data);
+      setSelectedSheet(sheetName);
     } catch (error) {
-      console.error('Error uploading file:', error);
-      const errorMessage = error instanceof Error ? error.message : 'Error uploading file';
+      console.error('Error loading sheet:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Error loading sheet';
       setSnackbar({
         open: true,
         message: errorMessage,
@@ -177,6 +215,23 @@ const ExcelUploader: FC<ExcelUploaderProps> = ({ onData }) => {
           <Box sx={{ display: 'flex', justifyContent: 'center', mt: 3 }}>
             <CircularProgress />
           </Box>
+        )}
+
+        {sheets.length > 0 && (
+          <FormControl fullWidth sx={{ mt: 2 }}>
+            <InputLabel>Select Sheet</InputLabel>
+            <Select
+              value={selectedSheet}
+              label="Select Sheet"
+              onChange={(e) => handleSheetSelect(e.target.value)}
+            >
+              {sheets.map((sheet) => (
+                <MenuItem key={sheet} value={sheet}>
+                  {sheet}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
         )}
 
         {!loading && rows.length > 0 && (
