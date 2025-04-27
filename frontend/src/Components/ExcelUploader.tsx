@@ -52,10 +52,7 @@ const ExcelUploader: FC<ExcelUploaderProps> = ({ onData }) => {
       });
       
       setSheets(sheetsResponse.data);
-      if (sheetsResponse.data.length > 0) {
-        setSelectedSheet(sheetsResponse.data[0]);
-        await handleSheetSelect(sheetsResponse.data[0]);
-      }
+      setSelectedSheet('');
     } catch (error) {
       console.error('Error getting sheets:', error);
       const errorMessage = error instanceof Error ? error.message : 'Error processing file';
@@ -292,7 +289,11 @@ const ExcelUploader: FC<ExcelUploaderProps> = ({ onData }) => {
               value={selectedSheet}
               label="Select Sheet"
               onChange={(e) => handleSheetSelect(e.target.value)}
+              disabled={loading}
             >
+              <MenuItem value="" disabled>
+                Select sheet please
+              </MenuItem>
               {sheets.map((sheet) => (
                 <MenuItem key={sheet} value={sheet}>
                   {sheet}
@@ -307,7 +308,7 @@ const ExcelUploader: FC<ExcelUploaderProps> = ({ onData }) => {
               <Paper elevation={2} sx={{ p: 2, mt: 2 }}>
               <Box sx={{ mt: 2, display: 'flex', gap: 2, alignItems: 'end' }}>
               <Typography variant="h6" sx={{ mb: 2, mt : 2, minWidth: 200 }}>Add Custom Column</Typography>
-                <TextField
+                {/* <TextField
                   label="New Column Name"
                   value={customColumnName}
                   onChange={(e) => setCustomColumnName(e.target.value)}
@@ -320,17 +321,66 @@ const ExcelUploader: FC<ExcelUploaderProps> = ({ onData }) => {
                   onChange={(e) => setCustomColumnValue(e.target.value)}
                   sx={{ width : 200 }}
                   placeholder="Enter value for all rows"
-                />
+                /> */}
+                <FormControl fullWidth sx={{ mt: 2, width : 200 }}>
+                  <InputLabel>Select Column Name</InputLabel>
+                  <Select
+                    value={customColumnName}
+                    label="Column Name"
+                    onChange={(e) => setCustomColumnName(e.target.value)}
+                  >
+                    <MenuItem value="">
+                      Select Column Name
+                    </MenuItem>
+                    {['پخش'].map((col_name) => (
+                      <MenuItem key={col_name} value={col_name}>
+                        {col_name}
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+                <FormControl fullWidth sx={{ mt: 2, width : 200 }}>
+                  <InputLabel>Select Column Value</InputLabel>
+                  <Select
+                    value={customColumnValue}
+                    label="Column Value"
+                    onChange={(e) => setCustomColumnValue(e.target.value)}
+                  >
+                    <MenuItem value="">
+                      Select Column Value
+                    </MenuItem>
+                    {['بهستان','البرز','داروپخش','هجرت'].map((col_val) => (
+                      <MenuItem key={col_val} value={col_val}>
+                        {col_val}
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
                 <Button
                   variant="contained"
                   sx={{ minWidth : 100 }}
-                  onClick={() => handleSheetSelect(selectedSheet)}
+                  onClick={() => {
+                    if (!customColumnName || !customColumnValue) return;
+                    
+                    const updatedRows = rows.map(row => ({
+                      ...row,
+                      [customColumnName]: customColumnValue
+                    }));
+                    
+                    setRows(updatedRows);
+                    setFilteredRows(updatedRows);
+                    onData(updatedRows);
+                    
+                    // Clear the input fields
+                    setCustomColumnName('');
+                    setCustomColumnValue('');
+                  }}
                   disabled={!customColumnName || !customColumnValue}
                 >
                   Add Column
                 </Button>
               </Box>
-            {!dateSplitApplied && (
+            
             <Box sx={{ mt: 2, display: 'flex', gap: 2, alignItems: 'center', textAlign: 'left' }}>
               <Typography variant="h6" sx={{ mb: 2, minWidth: 200 }}>Select Date Column</Typography>
               <FormControl sx={{ width : 200 }}>
@@ -339,6 +389,7 @@ const ExcelUploader: FC<ExcelUploaderProps> = ({ onData }) => {
                   value={dateColumn}
                   label="Date Column"
                   onChange={(e) => handleDateColumnSelect(e.target.value)}
+                  disabled={dateSplitApplied}
                 >
                   {Object.keys(rows[0])
                     .filter(key => key !== 'id')
@@ -349,8 +400,32 @@ const ExcelUploader: FC<ExcelUploaderProps> = ({ onData }) => {
                     ))}
                 </Select>
               </FormControl>
+              {dateSplitApplied && (
+                <Button
+                  variant="outlined"
+                  color="error"
+                  onClick={() => {
+                    // Remove the split date columns
+                    const updatedRows = rows.map(row => {
+                      const newRow = { ...row };
+                      delete newRow[`${dateColumn}_year`];
+                      delete newRow[`${dateColumn}_month`];
+                      delete newRow[`${dateColumn}_day`];
+                      return newRow;
+                    });
+                    
+                    setRows(updatedRows);
+                    setFilteredRows(updatedRows);
+                    onData(updatedRows);
+                    setDateSplitApplied(false);
+                    setDateColumn('');
+                  }}
+                >
+                  Revert Date Split
+                </Button>
+              )}
             </Box>
-          )}
+          
             </Paper>
             <DataFilter
               columns={Object.keys(rows[0]).filter(key => key !== 'id')}
