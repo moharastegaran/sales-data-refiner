@@ -177,16 +177,16 @@ const DataFilter: FC<DataFilterProps> = ({ columns, onFilterChange }) => {
           >
             <DeleteIcon />
           </IconButton>
+          {index === conditions.length - 1 && (
+            <IconButton
+              onClick={handleAddCondition}
+              color="primary"
+            >
+              <AddIcon />
+            </IconButton>
+          )}
         </Box>
       ))}
-      <Button
-        startIcon={<AddIcon />}
-        onClick={handleAddCondition}
-        variant="outlined"
-        sx={{ mt: 1 }}
-      >
-        Add Condition
-      </Button>
     </Paper>
   );
 };
