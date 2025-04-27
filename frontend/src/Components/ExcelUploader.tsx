@@ -306,23 +306,9 @@ const ExcelUploader: FC<ExcelUploaderProps> = ({ onData }) => {
           {!loading && rows.length > 0 && (
             <>
               <Paper elevation={2} sx={{ p: 2, mt: 2 }}>
-              <Box sx={{ mt: 2, display: 'flex', gap: 2, alignItems: 'end' }}>
-              <Typography variant="h6" sx={{ mb: 2, mt : 2, minWidth: 200 }}>Add Custom Column</Typography>
-                {/* <TextField
-                  label="New Column Name"
-                  value={customColumnName}
-                  onChange={(e) => setCustomColumnName(e.target.value)}
-                  sx={{ width : 200 }}
-                  placeholder="Enter new column name"
-                />
-                <TextField
-                  label="Column Value"
-                  value={customColumnValue}
-                  onChange={(e) => setCustomColumnValue(e.target.value)}
-                  sx={{ width : 200 }}
-                  placeholder="Enter value for all rows"
-                /> */}
-                <FormControl fullWidth sx={{ mt: 2, width : 200 }}>
+              <Box sx={{ mt: 2, display: 'flex', gap: 2, alignItems: 'center' }}>
+              <Typography variant="h6" sx={{ minWidth: 200 }}>Add Custom Column</Typography>
+                <FormControl fullWidth sx={{ width : 200 }}>
                   <InputLabel>Select Column Name</InputLabel>
                   <Select
                     value={customColumnName}
@@ -339,7 +325,7 @@ const ExcelUploader: FC<ExcelUploaderProps> = ({ onData }) => {
                     ))}
                   </Select>
                 </FormControl>
-                <FormControl fullWidth sx={{ mt: 2, width : 200 }}>
+                <FormControl fullWidth sx={{ width : 200 }}>
                   <InputLabel>Select Column Value</InputLabel>
                   <Select
                     value={customColumnValue}
@@ -357,7 +343,7 @@ const ExcelUploader: FC<ExcelUploaderProps> = ({ onData }) => {
                   </Select>
                 </FormControl>
                 <Button
-                  variant="contained"
+                  variant="text"
                   sx={{ minWidth : 100 }}
                   onClick={() => {
                     if (!customColumnName || !customColumnValue) return;
@@ -381,8 +367,8 @@ const ExcelUploader: FC<ExcelUploaderProps> = ({ onData }) => {
                 </Button>
               </Box>
             
-            <Box sx={{ mt: 2, display: 'flex', gap: 2, alignItems: 'center', textAlign: 'left' }}>
-              <Typography variant="h6" sx={{ mb: 2, minWidth: 200 }}>Select Date Column</Typography>
+            <Box sx={{ mt: 3, display: 'flex', gap: 2, alignItems: 'center', textAlign: 'left' }}>
+              <Typography variant="h6" sx={{ minWidth: 200 }}>Select Date Column</Typography>
               <FormControl sx={{ width : 200 }}>
                 <InputLabel>Date Column</InputLabel>
                 <Select
@@ -402,7 +388,7 @@ const ExcelUploader: FC<ExcelUploaderProps> = ({ onData }) => {
               </FormControl>
               {dateSplitApplied && (
                 <Button
-                  variant="outlined"
+                  variant="text"
                   color="error"
                   onClick={() => {
                     // Remove the split date columns
