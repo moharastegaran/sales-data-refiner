@@ -25,3 +25,4 @@ Route::post('analyze',      [ExcelController::class, 'analyze']);
 Route::post('/filter', [ExcelController::class, 'filter']);
 Route::get('/headers', [ExcelController::class, 'getHeaders']);
 Route::post('/export-analysis', [ExcelController::class, 'exportAnalysis']);
+Route::delete('/clear-data', [ExcelController::class, 'clearData']);

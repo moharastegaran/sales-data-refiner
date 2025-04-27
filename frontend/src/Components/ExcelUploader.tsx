@@ -2,7 +2,7 @@ import React, { FC, useState, useMemo } from 'react';
 import { Box, Button, Typography, CircularProgress, Chip, ThemeProvider, createTheme, Snackbar, Alert, FormControl, InputLabel, Select, MenuItem, Dialog, DialogTitle, DialogContent, DialogActions, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Paper, TextField } from '@mui/material';
 import { DataGrid, GridColDef } from '@mui/x-data-grid';
 import { useNavigate } from 'react-router-dom';
-import UploadFileIcon from '@mui/icons-material/UploadFile';
+import UploadFileIcon, { CloudUploadOutlined, Upload } from '@mui/icons-material';
 import api from '../api';
 import DataFilter, { FilterCondition } from './DataFilter';
 
@@ -247,7 +247,7 @@ const ExcelUploader: FC<ExcelUploaderProps> = ({ onData }) => {
             Upload & Preview
           </Typography>
           <Button 
-            variant="contained" 
+            variant="outlined" 
             component="label" 
             sx={{ 
               mt: 2,
@@ -255,7 +255,7 @@ const ExcelUploader: FC<ExcelUploaderProps> = ({ onData }) => {
               px: 4,
               fontSize: '1.1rem',
               letterSpacing: '0.1em',
-              boxShadow: 3,
+              boxShadow: 1,
               '&:hover': {
                 boxShadow: 6,
                 transform: 'translateY(-2px)',
@@ -264,8 +264,8 @@ const ExcelUploader: FC<ExcelUploaderProps> = ({ onData }) => {
             }}
             disabled={loading}
           >
+            <Upload sx={{ mr: 1 }} />
             Upload File
-            <UploadFileIcon sx={{ ml: 1 }} />
             <input
               hidden
               type="file"

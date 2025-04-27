@@ -352,6 +352,24 @@ class ExcelController extends Controller
         }
     }
 
+    public function clearData()
+    {
+        try {
+            DB::table('filtered_rows')->truncate();
+            return response()->json([
+                'success' => true,
+                'message' => 'All data has been cleared successfully'
+            ]);
+        } catch (\Exception $e) {
+            \Log::error('Error clearing data: ' . $e->getMessage());
+            return response()->json([
+                'success' => false,
+                'error' => 'Error clearing data',
+                'message' => $e->getMessage()
+            ], 500);
+        }
+    }
+
     public function getSheets(Request $req)
     {
         try {

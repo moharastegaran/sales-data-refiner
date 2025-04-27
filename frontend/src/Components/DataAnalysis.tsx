@@ -20,11 +20,17 @@ import {
   TableRow,
   IconButton,
   Stack,
-  TextField
+  TextField,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogContentText,
+  DialogActions
 } from '@mui/material';
-import { KeyboardArrowDown, KeyboardArrowUp, Download } from '@mui/icons-material';
+import { KeyboardArrowDown, KeyboardArrowUp, Download, BarChartOutlined, Storage } from '@mui/icons-material';
 import { useData } from '../context/DataContext';
 import api from '../api';
+import { useNavigate } from 'react-router-dom';
 
 interface AnalysisResult {
   data: Array<{
@@ -70,6 +76,8 @@ const DataAnalysis: FC = () => {
   const [availableColumns, setAvailableColumns] = useState<string[]>([]);
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
   const [customHeaders, setCustomHeaders] = useState<Record<string, string>>({});
+  const navigate = useNavigate();
+  const [confirmDialogOpen, setConfirmDialogOpen] = useState(false);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -378,6 +386,17 @@ const DataAnalysis: FC = () => {
     }
   };
 
+  const handleNewDataEntry = async () => {
+    try {
+      // Clear existing data from the database
+      await api.delete('/clear-data');
+      // Navigate to upload page
+      navigate('/');
+    } catch (error) {
+      console.error('Error clearing data:', error);
+    }
+  };
+
   return (
     <Box p={4}>
       <Typography variant="h5" gutterBottom>Data Analysis</Typography>
@@ -443,18 +462,47 @@ const DataAnalysis: FC = () => {
             </FormControl>
           </Box>
 
-          <Box sx={{ width: '100%', mt: 2 }}>
+          <Box sx={{ width: '100%', mt: 2, display: 'flex', justifyContent: 'space-between', gap: 2 }}>
             <Button 
               variant="contained" 
               onClick={handleAnalyze}
               disabled={loading || selectedGroupColumns.length === 0 || !aggregateColumn}
               startIcon={loading ? <CircularProgress size={20} /> : null}
             >
+              <BarChartOutlined sx={{ mr: 1 }} />
               Analyze
+            </Button>
+            <Button
+              variant="outlined"
+              color="primary"
+              onClick={() => setConfirmDialogOpen(true)}
+            >
+              <Storage sx={{ mr: 1 }} />
+              New Data Entry
             </Button>
           </Box>
         </Box>
       </Paper>
+
+      <Dialog
+        open={confirmDialogOpen}
+        onClose={() => setConfirmDialogOpen(false)}
+      >
+        <DialogTitle>Clear Existing Data</DialogTitle>
+        <DialogContent>
+          <DialogContentText>
+            Warning: This action will clear all existing data from the database. 
+            You will need to upload a new Excel file to proceed with analysis.
+            Are you sure you want to continue?
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setConfirmDialogOpen(false)}>Cancel</Button>
+          <Button onClick={handleNewDataEntry} color="error" variant="contained">
+            Clear Data & Continue
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       {analysisResult && (
         <Paper sx={{ p: 3 }}>
