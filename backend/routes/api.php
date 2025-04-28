@@ -16,7 +16,8 @@ use App\Http\Controllers\ExcelController;
 */
 
 Route::get('hello-world', function () { return 'hello world'; });
-Route::post('upload',       [ExcelController::class, 'upload']);
+Route::post('get-sheets', [ExcelController::class, 'getSheets']);
+Route::post('upload-sheet', [ExcelController::class, 'uploadSheet']);
 Route::post('save',         [ExcelController::class, 'saveFiltered']);
 Route::get('groups',        [ExcelController::class, 'groups']);
 Route::get('export-groups', [ExcelController::class, 'exportGroups']);
@@ -24,3 +25,4 @@ Route::post('analyze',      [ExcelController::class, 'analyze']);
 Route::post('/filter', [ExcelController::class, 'filter']);
 Route::get('/headers', [ExcelController::class, 'getHeaders']);
 Route::post('/export-analysis', [ExcelController::class, 'exportAnalysis']);
+Route::delete('/clear-data', [ExcelController::class, 'clearData']);

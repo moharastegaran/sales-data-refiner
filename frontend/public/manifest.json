@@ -1,6 +1,6 @@
 {
-  "short_name": "React App",
-  "name": "Create React App Sample",
+  "short_name": "Sales Data Refiner",
+  "name": "Sales Data Refiner - Excel Data Analysis Tool",
   "icons": [
     {
       "src": "favicon.ico",

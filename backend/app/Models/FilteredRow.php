@@ -8,5 +8,5 @@ use Illuminate\Database\Eloquent\Model;
 class FilteredRow extends Model
 {
     protected $fillable = ['data'];
-    protected $casts = [ 'data' => 'array' ];
+    protected $casts = [ 'data' => 'string' ];
 }

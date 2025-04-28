@@ -1,4 +1,5 @@
 import React, { FC, useState, useMemo, useEffect } from 'react';
+import { JSX } from 'react';
 import { 
   Box, 
   Typography, 
@@ -18,11 +19,18 @@ import {
   TableHead,
   TableRow,
   IconButton,
-  Stack
+  Stack,
+  TextField,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogContentText,
+  DialogActions
 } from '@mui/material';
-import { KeyboardArrowDown, KeyboardArrowUp, Download } from '@mui/icons-material';
+import { KeyboardArrowDown, KeyboardArrowUp, Download, BarChartOutlined, Storage } from '@mui/icons-material';
 import { useData } from '../context/DataContext';
 import api from '../api';
+import { useNavigate } from 'react-router-dom';
 
 interface AnalysisResult {
   data: Array<{
@@ -38,24 +46,24 @@ interface AnalysisResult {
   };
 }
 
-interface RowData {
-  [key: string]: any;
-  aggregate_value: number;
-  count: number;
-  subRows?: RowData[];
-}
-
-interface AnalysisItem {
-  [key: string]: any;
-  aggregate_value: number;
-  count: number;
-}
-
 interface GroupedData {
   primaryKey: string;
-  items: AnalysisItem[];
+  items: Array<{
+    [key: string]: any;
+    aggregate_value: number;
+    count: number;
+  }>;
   totalAggregate: number;
   totalCount: number;
+}
+
+interface NestedRow {
+  id: string;
+  value: any;
+  children?: NestedRow[];
+  aggregate_value: number;
+  count: number;
+  level: number;
 }
 
 const DataAnalysis: FC = () => {
@@ -67,6 +75,9 @@ const DataAnalysis: FC = () => {
   const [aggregateFunction, setAggregateFunction] = useState<string>('sum');
   const [availableColumns, setAvailableColumns] = useState<string[]>([]);
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
+  const [customHeaders, setCustomHeaders] = useState<Record<string, string>>({});
+  const navigate = useNavigate();
+  const [confirmDialogOpen, setConfirmDialogOpen] = useState(false);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -74,6 +85,12 @@ const DataAnalysis: FC = () => {
         const response = await api.get('/headers');
         if (response.data && response.data.headers) {
           setAvailableColumns(response.data.headers);
+          // Initialize custom headers with default values
+          const defaultHeaders = response.data.headers.reduce((acc: Record<string, string>, header: string) => {
+            acc[header] = header;
+            return acc;
+          }, {});
+          setCustomHeaders(defaultHeaders);
         }
       } catch (error) {
         console.error('Error fetching headers:', error);
@@ -94,6 +111,14 @@ const DataAnalysis: FC = () => {
 
   const handleAggregateFunctionChange = (event: SelectChangeEvent) => {
     setAggregateFunction(event.target.value);
+  };
+
+  const handleHeaderChange = (originalHeader: string, newValue: string) => {
+    setCustomHeaders(prev => ({
+      ...prev,
+      [originalHeader]: newValue
+    }));
+    console.log(customHeaders);
   };
 
   const handleAnalyze = async () => {
@@ -133,65 +158,207 @@ const DataAnalysis: FC = () => {
     return value;
   };
 
-  const renderRow = (row: any, level: number = 0, parentId?: string) => {
-    const rowId = parentId ? `${parentId}-${row[selectedGroupColumns[level]]}` : row[selectedGroupColumns[0]];
-    const hasSubRows = level < selectedGroupColumns.length - 1;
-    const isExpanded = expandedRows.has(rowId);
+  const processNestedData = (data: any[], groupColumns: string[]): NestedRow[] => {
+    if (groupColumns.length === 0) return [];
 
-    return (
-      <React.Fragment key={rowId}>
-        <TableRow>
-          <TableCell>
-            {hasSubRows && (
-              <IconButton
-                size="small"
-                onClick={() => toggleRow(rowId)}
-                sx={{ mr: 1 }}
-              >
-                {isExpanded ? <KeyboardArrowUp /> : <KeyboardArrowDown />}
-              </IconButton>
-            )}
-            <span style={{ paddingLeft: level * 20 }}>
-              {row[selectedGroupColumns[level]]}
-            </span>
+    const groups = new Map<string, any>();
+    
+    // Group by the first column
+    data.forEach(item => {
+      const key = item[groupColumns[0]];
+      if (!groups.has(key)) {
+        groups.set(key, {
+          items: [],
+          aggregate_value: 0,
+          count: 0
+        });
+      }
+      const group = groups.get(key);
+      group.items.push(item);
+      group.aggregate_value += item.aggregate_value;
+      group.count += item.count;
+    });
+
+    // Convert to nested structure
+    return Array.from(groups.entries()).map(([key, group]) => {
+      const row: NestedRow = {
+        id: key,
+        value: key,
+        aggregate_value: group.aggregate_value,
+        count: group.count,
+        level: 0
+      };
+
+      // If there are more grouping columns, process children recursively
+      if (groupColumns.length > 1) {
+        row.children = processNestedData(
+          group.items,
+          groupColumns.slice(1)
+        ).map(child => ({
+          ...child,
+          id: `${row.id}-${child.id}`,
+          level: child.level + 1
+        }));
+      }
+
+      return row;
+    });
+  };
+
+  const renderNestedRows = (rows: NestedRow[]) => {
+    return rows.flatMap(row => {
+      const hasChildren = row.children && row.children.length > 0;
+      const isExpanded = expandedRows.has(row.id);
+      
+      const cells = [
+        <TableRow key={row.id}>
+          <TableCell
+            sx={{
+              paddingLeft: `${row.level * 24 + 16}px`,
+              backgroundColor: 'rgba(0, 0, 0, 0.04)',
+              fontWeight: row.level === 0 ? 'bold' : 'normal'
+            }}
+          >
+            <Box sx={{ display: 'flex', alignItems: 'center' }}>
+              {hasChildren && (
+                <IconButton
+                  size="small"
+                  onClick={() => toggleRow(row.id)}
+                  sx={{ mr: 1 }}
+                >
+                  {isExpanded ? <KeyboardArrowUp /> : <KeyboardArrowDown />}
+                </IconButton>
+              )}
+              {row.value}
+            </Box>
           </TableCell>
           <TableCell align="right">{formatValue(row.aggregate_value)}</TableCell>
           <TableCell align="right">{formatValue(row.count)}</TableCell>
         </TableRow>
-        {hasSubRows && isExpanded && row.subRows?.map((subRow: any) => 
-          renderRow(subRow, level + 1, rowId)
-        )}
-      </React.Fragment>
-    );
+      ];
+
+      if (hasChildren && isExpanded) {
+        cells.push(...renderNestedRows(row.children!));
+      }
+
+      return cells;
+    });
   };
 
-  const processedData = useMemo<GroupedData[]>(() => {
-    if (!analysisResult?.data || selectedGroupColumns.length === 0) return [];
+  const processedData = useMemo(() => {
+    if (!analysisResult) return [];
 
-    const groupedData = new Map<string, Omit<GroupedData, 'primaryKey'>>();
-    const primaryColumn = selectedGroupColumns[0];
+    const groupedData: GroupedData[] = [];
+    const groupByColumns = analysisResult.summary.groupBy;
 
-    analysisResult.data.forEach(row => {
-      const primaryValue = row[primaryColumn];
-      if (!groupedData.has(primaryValue)) {
-        groupedData.set(primaryValue, {
-          items: [],
-          totalAggregate: 0,
-          totalCount: 0
-        });
+    // Group the data by the first level
+    const firstLevelGroups = new Map<string, any[]>();
+    analysisResult.data.forEach(item => {
+      const key = item[groupByColumns[0]];
+      if (!firstLevelGroups.has(key)) {
+        firstLevelGroups.set(key, []);
       }
-      
-      const group = groupedData.get(primaryValue)!;
-      group.items.push(row);
-      group.totalAggregate += row.aggregate_value;
-      group.totalCount += row.count;
+      firstLevelGroups.get(key)!.push(item);
     });
 
-    return Array.from(groupedData.entries()).map(([key, value]) => ({
-      primaryKey: key,
-      ...value
-    }));
-  }, [analysisResult?.data, selectedGroupColumns]);
+    // Process each first level group
+    firstLevelGroups.forEach((items, key) => {
+      const totalAggregate = items.reduce((sum, item) => sum + item.aggregate_value, 0);
+      const totalCount = items.reduce((sum, item) => sum + item.count, 0);
+
+      groupedData.push({
+        primaryKey: key,
+        items,
+        totalAggregate,
+        totalCount
+      });
+    });
+
+    return groupedData;
+  }, [analysisResult]);
+
+  const renderTable = () => {
+    if (!analysisResult || !processedData.length) return null;
+
+    const groupByColumns = analysisResult.summary.groupBy;
+    const aggregateColumn = analysisResult.summary.aggregateColumn;
+    const aggregateFunction = analysisResult.summary.aggregateFunction;
+
+    // Process data to create groups
+    const groupedByType = processedData.reduce((acc, item) => {
+      const key = item.primaryKey;
+      if (!acc[key]) {
+        acc[key] = [];
+      }
+      acc[key].push(item);
+      return acc;
+    }, {} as Record<string, any[]>);
+
+    return (
+      <TableContainer component={Paper}>
+        <Table>
+          <TableHead>
+            <TableRow>
+              {groupByColumns.map((column, index) => (
+                <TableCell key={column} align="left">
+                  <TextField
+                    size="small"
+                    value={customHeaders[column] || column}
+                    onChange={(e) => handleHeaderChange(column, e.target.value)}
+                    variant="standard"
+                    fullWidth
+                  />
+                </TableCell>
+              ))}
+              <TableCell align="right">
+                <TextField
+                  size="small"
+                  value={customHeaders['count'] || 'Count'}
+                  onChange={(e) => handleHeaderChange('count', e.target.value)}
+                  variant="standard"
+                  fullWidth
+                />
+              </TableCell>
+              <TableCell align="right">
+                <TextField
+                  size="small"
+                  value={customHeaders[`${aggregateFunction}(${aggregateColumn})`] || `${aggregateFunction}(${aggregateColumn})`}
+                  onChange={(e) => handleHeaderChange(`${aggregateFunction}(${aggregateColumn})`, e.target.value)}
+                  variant="standard"
+                  fullWidth
+                />
+              </TableCell>
+            </TableRow>
+          </TableHead>
+          <TableBody>
+            {Object.entries(groupedByType).map(([groupKey, items], groupIndex) => {
+              const rowCount = items.reduce((sum, group) => sum + group.items.length, 0);
+              
+              return items.map((group, itemIndex) => (
+                group.items.map((item: { [key: string]: any; count: number; aggregate_value: number }, subIndex: number) => (
+                  <TableRow key={`${groupIndex}-${itemIndex}-${subIndex}`}>
+                    {subIndex === 0 && itemIndex === 0 ? (
+                      <TableCell 
+                        rowSpan={rowCount} 
+                        sx={{ backgroundColor: '#f5f5f5' }}
+                      >
+                        {groupKey}
+                      </TableCell>
+                    ) : null}
+                    {groupByColumns.slice(1).map((col, colIndex) => (
+                      <TableCell key={colIndex}>{item[col]}</TableCell>
+                    ))}
+                    <TableCell align="right">{item.count}</TableCell>
+                    <TableCell align="right">{item.aggregate_value.toFixed(2)}</TableCell>
+                  </TableRow>
+                ))
+              ));
+            })}
+          </TableBody>
+        </Table>
+      </TableContainer>
+    );
+  };
 
   const handleExport = async () => {
     if (!analysisResult) return;
@@ -200,7 +367,8 @@ const DataAnalysis: FC = () => {
       const response = await api.post('/export-analysis', {
         groupBy: selectedGroupColumns,
         aggregateColumn,
-        aggregateFunction
+        aggregateFunction,
+        customHeaders
       }, {
         responseType: 'blob'
       });
@@ -218,161 +386,15 @@ const DataAnalysis: FC = () => {
     }
   };
 
-  const renderTable = () => {
-    if (!processedData.length) return null;
-
-    // Helper function to group data by columns
-    const groupDataByColumns = (data: any[], columns: string[]): any[] => {
-      if (columns.length === 0) return data;
-
-      const grouped = new Map();
-      data.forEach(item => {
-        const key = item[columns[0]];
-        if (!grouped.has(key)) {
-          grouped.set(key, {
-            items: [],
-            value: key,
-            aggregateTotal: 0,
-            countTotal: 0
-          });
-        }
-        const group = grouped.get(key);
-        group.items.push(item);
-        group.aggregateTotal += item.aggregate_value;
-        group.countTotal += item.count;
-      });
-
-      // Recursively group remaining columns
-      return Array.from(grouped.values()).map(group => ({
-        ...group,
-        subGroups: columns.length > 1 
-          ? groupDataByColumns(group.items, columns.slice(1))
-          : null
-      }));
-    };
-
-    const groupedData = groupDataByColumns(analysisResult!.data, selectedGroupColumns);
-
-    // Render table header
-    const renderTableHeader = () => (
-      <TableHead>
-        <TableRow>
-          {selectedGroupColumns.map((col, index) => (
-            <TableCell key={col} sx={{ fontWeight: 'bold' }}>
-              {col}
-            </TableCell>
-          ))}
-          <TableCell align="right" sx={{ fontWeight: 'bold' }}>
-            {analysisResult!.summary.aggregateFunction.toUpperCase()}(
-            {analysisResult!.summary.aggregateColumn})
-          </TableCell>
-          <TableCell align="right" sx={{ fontWeight: 'bold' }}>
-            Count
-          </TableCell>
-        </TableRow>
-      </TableHead>
-    );
-
-    // Recursive function to render nested rows
-    const renderNestedRows = (
-      group: any, 
-      level: number = 0, 
-      parentRowSpans: number[] = []
-    ): React.ReactElement[] => {
-      const rows: React.ReactElement[] = [];
-      const isLeafLevel = level === selectedGroupColumns.length - 1;
-
-      if (isLeafLevel) {
-        // Render leaf level items
-        group.items.forEach((item: any, itemIndex: number) => {
-          rows.push(
-            <TableRow key={`${level}-${group.value}-${itemIndex}`}>
-              {itemIndex === 0 && parentRowSpans.map((span, i) => (
-                span > 0 && (
-                  <TableCell
-                    key={`parent-${i}`}
-                    rowSpan={span}
-                    sx={{
-                      backgroundColor: `rgba(0, 0, 0, ${0.04 - i * 0.01})`,
-                      fontWeight: 'bold',
-                      borderRight: '1px solid rgba(224, 224, 224, 1)'
-                    }}
-                  >
-                    {item[selectedGroupColumns[i]]}
-                  </TableCell>
-                )
-              ))}
-              {itemIndex === 0 && (
-                <TableCell
-                  rowSpan={group.items.length}
-                  sx={{
-                    backgroundColor: `rgba(0, 0, 0, ${0.04 - level * 0.01})`,
-                    paddingLeft: `${(level + 1) * 16}px`,
-                    borderRight: '1px solid rgba(224, 224, 224, 1)'
-                  }}
-                >
-                  {item[selectedGroupColumns[level]]}
-                </TableCell>
-              )}
-              <TableCell align="right">
-                {formatValue(item.aggregate_value)}
-              </TableCell>
-              <TableCell align="right">
-                {formatValue(item.count)}
-              </TableCell>
-            </TableRow>
-          );
-        });
-      } else {
-        // Render intermediate level groups
-        group.subGroups.forEach((subGroup: any, groupIndex: number) => {
-          const subGroupRows = renderNestedRows(
-            subGroup,
-            level + 1,
-            [...parentRowSpans, groupIndex === 0 ? group.items.length : 0]
-          );
-          
-          if (groupIndex === 0) {
-            rows.push(
-              <TableRow key={`${level}-${group.value}`}>
-                <TableCell
-                  rowSpan={group.items.length}
-                  sx={{
-                    backgroundColor: `rgba(0, 0, 0, ${0.04 - level * 0.01})`,
-                    fontWeight: 'bold',
-                    paddingLeft: `${(level + 1) * 16}px`,
-                    borderRight: '1px solid rgba(224, 224, 224, 1)'
-                  }}
-                >
-                  {group.value}
-                </TableCell>
-                {((subGroupRows[0] as React.ReactElement<any>).props.children as React.ReactNode[]).slice(1)}
-              </TableRow>
-            );
-            rows.push(...subGroupRows.slice(1));
-          } else {
-            rows.push(...subGroupRows);
-          }
-        });
-      }
-
-      return rows;
-    };
-
-    return (
-      <TableContainer component={Paper} sx={{ mt: 2 }}>
-        <Table>
-          {renderTableHeader()}
-          <TableBody>
-            {groupedData.map((group, index) => (
-              <React.Fragment key={`group-${index}`}>
-                {renderNestedRows(group)}
-              </React.Fragment>
-            ))}
-          </TableBody>
-        </Table>
-      </TableContainer>
-    );
+  const handleNewDataEntry = async () => {
+    try {
+      // Clear existing data from the database
+      await api.delete('/clear-data');
+      // Navigate to upload page
+      navigate('/');
+    } catch (error) {
+      console.error('Error clearing data:', error);
+    }
   };
 
   return (
@@ -440,18 +462,47 @@ const DataAnalysis: FC = () => {
             </FormControl>
           </Box>
 
-          <Box sx={{ width: '100%', mt: 2 }}>
+          <Box sx={{ width: '100%', mt: 2, display: 'flex', justifyContent: 'space-between', gap: 2 }}>
             <Button 
               variant="contained" 
               onClick={handleAnalyze}
               disabled={loading || selectedGroupColumns.length === 0 || !aggregateColumn}
               startIcon={loading ? <CircularProgress size={20} /> : null}
             >
+              <BarChartOutlined sx={{ mr: 1 }} />
               Analyze
+            </Button>
+            <Button
+              variant="outlined"
+              color="primary"
+              onClick={() => setConfirmDialogOpen(true)}
+            >
+              <Storage sx={{ mr: 1 }} />
+              New Data Entry
             </Button>
           </Box>
         </Box>
       </Paper>
+
+      <Dialog
+        open={confirmDialogOpen}
+        onClose={() => setConfirmDialogOpen(false)}
+      >
+        <DialogTitle>Clear Existing Data</DialogTitle>
+        <DialogContent>
+          <DialogContentText>
+            Warning: This action will clear all existing data from the database. 
+            You will need to upload a new Excel file to proceed with analysis.
+            Are you sure you want to continue?
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setConfirmDialogOpen(false)}>Cancel</Button>
+          <Button onClick={handleNewDataEntry} color="error" variant="contained">
+            Clear Data & Continue
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       {analysisResult && (
         <Paper sx={{ p: 3 }}>

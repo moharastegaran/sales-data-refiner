@@ -77,7 +77,9 @@ class ExcelController extends Controller
 
         FilteredRow::truncate();
         foreach ($data['rows'] as $row) {
-            FilteredRow::create(['data' => $row]);
+            // Store the data as a JSON string with unescaped Unicode
+            $jsonData = json_encode($row, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+            FilteredRow::create(['data' => $jsonData]);
         }
 
         return response()->json(['stored' => count($data['rows'])]);
@@ -96,7 +98,7 @@ class ExcelController extends Controller
             ->selectRaw('COUNT(*) AS count');
 
         if ($a) {
-            $q->selectRaw("SUM(JSON_EXTRACT(data, '$.\"{$a}\"')) AS sum_{$a}")
+            $q->selectRaw("SUM(CAST(JSON_EXTRACT(data, '$.\"{$a}\"') AS DECIMAL(10,2))) AS sum_{$a}")
               ->having("sum_{$a}", $op, $th);
         }
 
@@ -191,8 +193,12 @@ class ExcelController extends Controller
                 return response()->json(['headers' => []]);
             }
 
-            // Decode the JSON data
+            // Decode the JSON string
             $data = json_decode($firstRow->data, true);
+            
+            if (!$data) {
+                return response()->json(['headers' => []]);
+            }
             
             // Get all keys from the data
             $headers = array_keys($data);
@@ -214,7 +220,8 @@ class ExcelController extends Controller
                 'groupBy' => 'required|array',
                 'groupBy.*' => 'required|string',
                 'aggregateColumn' => 'required|string',
-                'aggregateFunction' => 'required|string|in:sum,avg,count,min,max'
+                'aggregateFunction' => 'required|string|in:sum,avg,count,min,max',
+                'customHeaders' => 'nullable|array'
             ]);
 
             $query = DB::table('filtered_rows');
@@ -243,11 +250,15 @@ class ExcelController extends Controller
             $spreadsheet = new \PhpOffice\PhpSpreadsheet\Spreadsheet();
             $sheet = $spreadsheet->getActiveSheet();
 
-            // Set headers
-            $headers = array_merge($params['groupBy'], [
-                $params['aggregateFunction'] . '(' . $params['aggregateColumn'] . ')',
-                'Count'
-            ]);
+            // Set headers with custom names if provided
+            $headers = [];
+            foreach ($params['groupBy'] as $column) {
+                $headers[] = $params['customHeaders'][$column] ?? $column;
+            }
+            $headers[] = $params['customHeaders']['count'] ?? 'Count';
+            $headers[] = $params['customHeaders'][$params['aggregateFunction'] . '(' . $params['aggregateColumn'] . ')'] 
+                        ?? $params['aggregateFunction'] . '(' . $params['aggregateColumn'] . ')';
+            
             $sheet->fromArray($headers, null, 'A1');
 
             // Style headers
@@ -294,8 +305,8 @@ class ExcelController extends Controller
                 foreach ($params['groupBy'] as $column) {
                     $data[] = $result->$column;
                 }
-                $data[] = $result->aggregate_value;
                 $data[] = $result->count;
+                $data[] = $result->aggregate_value;
                 $sheet->fromArray($data, null, 'A' . $row);
                 
                 $row++;
@@ -336,6 +347,90 @@ class ExcelController extends Controller
             return response()->json([
                 'success' => false,
                 'error' => 'Error exporting analysis',
+                'message' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    public function clearData()
+    {
+        try {
+            DB::table('filtered_rows')->truncate();
+            return response()->json([
+                'success' => true,
+                'message' => 'All data has been cleared successfully'
+            ]);
+        } catch (\Exception $e) {
+            \Log::error('Error clearing data: ' . $e->getMessage());
+            return response()->json([
+                'success' => false,
+                'error' => 'Error clearing data',
+                'message' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    public function getSheets(Request $req)
+    {
+        try {
+            $req->validate(['file' => 'required|file|mimes:xlsx,csv']);
+            $file = $req->file('file');
+
+            $spreadsheet = \PhpOffice\PhpSpreadsheet\IOFactory::load($file);
+            $sheets = $spreadsheet->getSheetNames();
+
+            return response()->json($sheets);
+        } catch (\Exception $e) {
+            \Log::error('Error getting sheets: ' . $e->getMessage());
+            return response()->json([
+                'error' => 'Error processing file',
+                'message' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    public function uploadSheet(Request $req)
+    {
+        try {
+            $req->validate([
+                'file' => 'required|file|mimes:xlsx,csv',
+                'sheet' => 'required|string'
+            ]);
+
+            $file = $req->file('file');
+            $sheetName = $req->input('sheet');
+
+            $spreadsheet = \PhpOffice\PhpSpreadsheet\IOFactory::load($file);
+            $worksheet = $spreadsheet->getSheetByName($sheetName);
+            
+            if (!$worksheet) {
+                return response()->json(['error' => 'Sheet not found'], 404);
+            }
+
+            $collection = collect($worksheet->toArray());
+            if ($collection->isEmpty()) {
+                return response()->json(['error' => 'Sheet is empty'], 400);
+            }
+
+            $collection = $collection->take(1000);
+            $headers = $collection->shift();
+
+            $rows = $collection
+                ->map(function($row) use ($headers) {
+                    try {
+                        return array_combine($headers, $row);
+                    } catch (\Exception $e) {
+                        \Log::error('Row processing error: ' . $e->getMessage());
+                        throw $e;
+                    }
+                })
+                ->toArray();
+
+            return response()->json($rows);
+        } catch (\Exception $e) {
+            \Log::error('Excel upload error: ' . $e->getMessage());
+            return response()->json([
+                'error' => 'Error processing file',
                 'message' => $e->getMessage()
             ], 500);
         }
