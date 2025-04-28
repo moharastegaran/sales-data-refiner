@@ -46,6 +46,13 @@ interface AnalysisResult {
   };
 }
 
+interface FileAnalysis {
+  id: string;
+  fileName: string;
+  result: AnalysisResult;
+  customHeaders: Record<string, string>;
+}
+
 interface GroupedData {
   primaryKey: string;
   items: Array<{
@@ -69,7 +76,8 @@ interface NestedRow {
 const DataAnalysis: FC = () => {
   const { data } = useData();
   const [loading, setLoading] = useState(false);
-  const [analysisResult, setAnalysisResult] = useState<AnalysisResult | null>(null);
+  const [analysisResults, setAnalysisResults] = useState<FileAnalysis[]>([]);
+  const [currentFileIndex, setCurrentFileIndex] = useState<number>(0);
   const [selectedGroupColumns, setSelectedGroupColumns] = useState<string[]>([]);
   const [aggregateColumn, setAggregateColumn] = useState<string>('');
   const [aggregateFunction, setAggregateFunction] = useState<string>('sum');
@@ -78,6 +86,56 @@ const DataAnalysis: FC = () => {
   const [customHeaders, setCustomHeaders] = useState<Record<string, string>>({});
   const navigate = useNavigate();
   const [confirmDialogOpen, setConfirmDialogOpen] = useState(false);
+  const [addFileDialogOpen, setAddFileDialogOpen] = useState(false);
+
+  useEffect(() => {
+    console.log(`localStorage.getItem('currentFileIndex'): ${localStorage.getItem('currentFileIndex')}`);
+    const savedAnalysisResults = localStorage.getItem('analysisResults');
+    const savedCurrentFileIndex = localStorage.getItem('currentFileIndex');
+    const savedCustomHeaders = localStorage.getItem('customHeaders');
+    
+    if (savedAnalysisResults) {
+      try {
+        const parsedResults = JSON.parse(savedAnalysisResults);
+        console.log(`parsedResults: ${localStorage.getItem('analysisResults')}`);
+        setAnalysisResults(parsedResults);
+      } catch (error) {
+        console.error('Error parsing saved analysis results:', error);
+      }
+    }
+    
+    if (savedCurrentFileIndex) {
+      try {
+        setCurrentFileIndex(parseInt(savedCurrentFileIndex, 10));
+      } catch (error) {
+        console.error('Error parsing saved current file index:', error);
+      }
+    }
+    
+    if (savedCustomHeaders) {
+      try {
+        setCustomHeaders(JSON.parse(savedCustomHeaders));
+        console.log(`customHeaders ${savedCustomHeaders}`);
+      } catch (error) {
+        console.error('Error parsing saved custom headers:', error);
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    localStorage.setItem('analysisResults', JSON.stringify(analysisResults));
+    setCurrentFileIndex(analysisResults.length);
+    console.log(`currentFileIndex changed to : ${currentFileIndex}`);
+  }, [analysisResults]);
+  
+  useEffect(() => {
+    localStorage.setItem('currentFileIndex', currentFileIndex.toString());
+    console.log(`currentFileIndex changed to : ${currentFileIndex}`);
+  }, [currentFileIndex]);
+  
+  useEffect(() => {
+    localStorage.setItem('customHeaders', JSON.stringify(customHeaders));
+  }, [customHeaders]);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -118,7 +176,6 @@ const DataAnalysis: FC = () => {
       ...prev,
       [originalHeader]: newValue
     }));
-    console.log(customHeaders);
   };
 
   const handleAnalyze = async () => {
@@ -132,7 +189,15 @@ const DataAnalysis: FC = () => {
         aggregateFunction
       });
 
-      setAnalysisResult(response.data);
+      const newFileAnalysis: FileAnalysis = {
+        id: Date.now().toString(),
+        fileName: `File ${analysisResults.length + 1}`,
+        result: response.data,
+        customHeaders: { ...customHeaders }
+      };
+
+      setAnalysisResults(prev => [...prev, newFileAnalysis]);
+
       setExpandedRows(new Set());
     } catch (error) {
       console.error('Error analyzing data:', error);
@@ -246,14 +311,14 @@ const DataAnalysis: FC = () => {
   };
 
   const processedData = useMemo(() => {
-    if (!analysisResult) return [];
+    if (!analysisResults[currentFileIndex]?.result) return [];
 
     const groupedData: GroupedData[] = [];
-    const groupByColumns = analysisResult.summary.groupBy;
+    const groupByColumns = analysisResults[currentFileIndex]?.result.summary.groupBy;
 
     // Group the data by the first level
     const firstLevelGroups = new Map<string, any[]>();
-    analysisResult.data.forEach(item => {
+    analysisResults[currentFileIndex]?.result.data.forEach(item => {
       const key = item[groupByColumns[0]];
       if (!firstLevelGroups.has(key)) {
         firstLevelGroups.set(key, []);
@@ -275,14 +340,14 @@ const DataAnalysis: FC = () => {
     });
 
     return groupedData;
-  }, [analysisResult]);
+  }, [analysisResults, currentFileIndex]);
 
   const renderTable = () => {
-    if (!analysisResult || !processedData.length) return null;
+    if (!analysisResults[currentFileIndex]?.result || !processedData.length) return null;
 
-    const groupByColumns = analysisResult.summary.groupBy;
-    const aggregateColumn = analysisResult.summary.aggregateColumn;
-    const aggregateFunction = analysisResult.summary.aggregateFunction;
+    const groupByColumns = analysisResults[currentFileIndex]?.result.summary.groupBy;
+    const aggregateColumn = analysisResults[currentFileIndex]?.result.summary.aggregateColumn;
+    const aggregateFunction = analysisResults[currentFileIndex]?.result.summary.aggregateFunction;
 
     // Process data to create groups
     const groupedByType = processedData.reduce((acc, item) => {
@@ -361,14 +426,16 @@ const DataAnalysis: FC = () => {
   };
 
   const handleExport = async () => {
-    if (!analysisResult) return;
+    if (analysisResults.length === 0) return;
 
     try {
       const response = await api.post('/export-analysis', {
-        groupBy: selectedGroupColumns,
-        aggregateColumn,
-        aggregateFunction,
-        customHeaders
+        files: analysisResults.map(fileAnalysis => ({
+          data: fileAnalysis.result.data,
+          summary: fileAnalysis.result.summary,
+          customHeaders: fileAnalysis.customHeaders,
+          fileName: fileAnalysis.fileName
+        }))
       }, {
         responseType: 'blob'
       });
@@ -377,7 +444,7 @@ const DataAnalysis: FC = () => {
       const url = window.URL.createObjectURL(new Blob([response.data]));
       const link = document.createElement('a');
       link.href = url;
-      link.setAttribute('download', 'analysis_results.xlsx');
+      link.setAttribute('download', 'combined_analysis_results.xlsx');
       document.body.appendChild(link);
       link.click();
       link.remove();
@@ -390,6 +457,17 @@ const DataAnalysis: FC = () => {
     try {
       // Clear existing data from the database
       await api.delete('/clear-data');
+      
+      // Clear localStorage
+      localStorage.removeItem('analysisResults');
+      localStorage.removeItem('currentFileIndex');
+      localStorage.removeItem('customHeaders');
+      
+      // Reset state
+      setAnalysisResults([]);
+      setCurrentFileIndex(0);
+      setCustomHeaders({});
+      
       // Navigate to upload page
       navigate('/');
     } catch (error) {
@@ -504,29 +582,63 @@ const DataAnalysis: FC = () => {
         </DialogActions>
       </Dialog>
 
-      {analysisResult && (
+      {analysisResults.length > 0 && (
         <Paper sx={{ p: 3 }}>
           <Stack direction="row" justifyContent="space-between" alignItems="center" mb={2}>
             <Box>
               <Typography variant="h6" gutterBottom>
-                Analysis Results
+                Analysis Results - {analysisResults[currentFileIndex]?.fileName}
               </Typography>
               <Typography variant="body2" color="text.secondary">
-                Total Groups: {analysisResult.summary.totalGroups}
+                Total Groups: {analysisResults[currentFileIndex]?.result.summary.totalGroups}
               </Typography>
             </Box>
-            <Button
-              variant="outlined"
-              startIcon={<Download />}
-              onClick={handleExport}
-            >
-              Export to Excel
-            </Button>
+            <Stack direction="row" spacing={2}>
+              <Button
+                variant="outlined"
+                startIcon={<Download />}
+                onClick={handleExport}
+              >
+                Export to Excel
+              </Button>
+              <Button
+                variant="contained"
+                onClick={() => setAddFileDialogOpen(true)}
+              >
+                Add Another File
+              </Button>
+            </Stack>
           </Stack>
 
           {renderTable()}
         </Paper>
       )}
+
+      <Dialog
+        open={addFileDialogOpen}
+        onClose={() => setAddFileDialogOpen(false)}
+      >
+        <DialogTitle>Add Another File</DialogTitle>
+        <DialogContent>
+          <DialogContentText>
+            You can add another file to analyze. The current analysis will be preserved.
+            Would you like to proceed?
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setAddFileDialogOpen(false)}>Cancel</Button>
+          <Button 
+            onClick={() => {
+              setAddFileDialogOpen(false);
+              navigate('/');
+            }} 
+            color="primary" 
+            variant="contained"
+          >
+            Add File
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 };

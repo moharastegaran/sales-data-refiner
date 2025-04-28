@@ -217,120 +217,111 @@ class ExcelController extends Controller
     {
         try {
             $params = $req->validate([
-                'groupBy' => 'required|array',
-                'groupBy.*' => 'required|string',
-                'aggregateColumn' => 'required|string',
-                'aggregateFunction' => 'required|string|in:sum,avg,count,min,max',
-                'customHeaders' => 'nullable|array'
+                'files' => 'required|array',
+                'files.*.data' => 'required|array',
+                'files.*.summary' => 'required|array',
+                'files.*.summary.groupBy' => 'required|array',
+                'files.*.summary.groupBy.*' => 'required|string',
+                'files.*.summary.aggregateColumn' => 'required|string',
+                'files.*.summary.aggregateFunction' => 'required|string|in:sum,avg,count,min,max',
+                'files.*.customHeaders' => 'nullable|array',
+                'files.*.fileName' => 'required|string'
             ]);
-
-            $query = DB::table('filtered_rows');
-
-            // Build the group by columns
-            $groupColumns = [];
-            foreach ($params['groupBy'] as $column) {
-                $groupColumns[] = "JSON_UNQUOTE(JSON_EXTRACT(data, '$.\"{$column}\"'))";
-                $query->selectRaw("JSON_UNQUOTE(JSON_EXTRACT(data, '$.\"{$column}\"')) AS `{$column}`");
-            }
-
-            // Add aggregate value and count
-            $query->selectRaw("{$params['aggregateFunction']}(JSON_EXTRACT(data, '$.\"{$params['aggregateColumn']}\"')) AS aggregate_value")
-                  ->selectRaw('COUNT(*) AS count');
-
-            // Group by all specified columns
-            $query->groupBy($params['groupBy']);
-
-            // Order by first group column and aggregate value
-            $query->orderBy($params['groupBy'][0])
-                  ->orderBy('aggregate_value', 'desc');
-
-            $results = $query->get();
 
             // Create Excel file
             $spreadsheet = new \PhpOffice\PhpSpreadsheet\Spreadsheet();
-            $sheet = $spreadsheet->getActiveSheet();
-
-            // Set headers with custom names if provided
-            $headers = [];
-            foreach ($params['groupBy'] as $column) {
-                $headers[] = $params['customHeaders'][$column] ?? $column;
-            }
-            $headers[] = $params['customHeaders']['count'] ?? 'Count';
-            $headers[] = $params['customHeaders'][$params['aggregateFunction'] . '(' . $params['aggregateColumn'] . ')'] 
-                        ?? $params['aggregateFunction'] . '(' . $params['aggregateColumn'] . ')';
             
-            $sheet->fromArray($headers, null, 'A1');
-
-            // Style headers
-            $headerStyle = [
-                'font' => ['bold' => true],
-                'fill' => [
-                    'fillType' => \PhpOffice\PhpSpreadsheet\Style\Fill::FILL_SOLID,
-                    'startColor' => ['rgb' => 'E0E0E0']
-                ]
-            ];
-            $sheet->getStyle('A1:' . \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex(count($headers)) . '1')
-                  ->applyFromArray($headerStyle);
-
-            // Add data with merged cells for primary groups
-            $row = 2;
-            $currentGroup = null;
-            $groupStartRow = $row;
-            
-            foreach ($results as $result) {
-                $primaryGroupValue = $result->{$params['groupBy'][0]};
-                
-                // If we're starting a new group
-                if ($currentGroup !== $primaryGroupValue) {
-                    // Merge cells for previous group if exists
-                    if ($currentGroup !== null && $row > $groupStartRow) {
-                        $sheet->mergeCells("A{$groupStartRow}:A" . ($row - 1));
-                    }
-                    
-                    $currentGroup = $primaryGroupValue;
-                    $groupStartRow = $row;
-                    
-                    // Style primary group cell
-                    $sheet->getStyle("A{$row}")->applyFromArray([
-                        'font' => ['bold' => true],
-                        'fill' => [
-                            'fillType' => \PhpOffice\PhpSpreadsheet\Style\Fill::FILL_SOLID,
-                            'startColor' => ['rgb' => 'F5F5F5']
-                        ]
-                    ]);
+            // Process each file
+            foreach ($params['files'] as $index => $file) {
+                // Create a new sheet for each file
+                if ($index > 0) {
+                    $spreadsheet->createSheet();
                 }
+                $sheet = $spreadsheet->getSheet($index);
+                $sheet->setTitle(substr($file['fileName'], 0, 31)); // Excel sheet names are limited to 31 chars
 
-                // Add row data
-                $data = [];
-                foreach ($params['groupBy'] as $column) {
-                    $data[] = $result->$column;
+                // Set headers with custom names if provided
+                $headers = [];
+                foreach ($file['summary']['groupBy'] as $column) {
+                    $headers[] = $file['customHeaders'][$column] ?? $column;
                 }
-                $data[] = $result->count;
-                $data[] = $result->aggregate_value;
-                $sheet->fromArray($data, null, 'A' . $row);
+                $headers[] = $file['customHeaders']['count'] ?? 'Count';
+                $headers[] = $file['customHeaders'][$file['summary']['aggregateFunction'] . '(' . $file['summary']['aggregateColumn'] . ')'] 
+                            ?? $file['summary']['aggregateFunction'] . '(' . $file['summary']['aggregateColumn'] . ')';
                 
-                $row++;
-            }
+                $sheet->fromArray($headers, null, 'A1');
 
-            // Merge cells for the last group
-            if ($currentGroup !== null && $row > $groupStartRow) {
-                $sheet->mergeCells("A{$groupStartRow}:A" . ($row - 1));
-            }
-
-            // Add borders
-            $borderStyle = [
-                'borders' => [
-                    'allBorders' => [
-                        'borderStyle' => \PhpOffice\PhpSpreadsheet\Style\Border::BORDER_THIN
+                // Style headers
+                $headerStyle = [
+                    'font' => ['bold' => true],
+                    'fill' => [
+                        'fillType' => \PhpOffice\PhpSpreadsheet\Style\Fill::FILL_SOLID,
+                        'startColor' => ['rgb' => 'E0E0E0']
                     ]
-                ]
-            ];
-            $sheet->getStyle('A1:' . \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex(count($headers)) . ($row - 1))
-                  ->applyFromArray($borderStyle);
+                ];
+                $sheet->getStyle('A1:' . \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex(count($headers)) . '1')
+                      ->applyFromArray($headerStyle);
 
-            // Auto-size columns
-            foreach (range('A', $sheet->getHighestColumn()) as $col) {
-                $sheet->getColumnDimension($col)->setAutoSize(true);
+                // Add data with merged cells for primary groups
+                $row = 2;
+                $currentGroup = null;
+                $groupStartRow = $row;
+                
+                foreach ($file['data'] as $result) {
+                    $primaryGroupValue = $result->{$file['summary']['groupBy'][0]};
+                    
+                    // If we're starting a new group
+                    if ($currentGroup !== $primaryGroupValue) {
+                        // Merge cells for previous group if exists
+                        if ($currentGroup !== null && $row > $groupStartRow) {
+                            $sheet->mergeCells("A{$groupStartRow}:A" . ($row - 1));
+                        }
+                        
+                        $currentGroup = $primaryGroupValue;
+                        $groupStartRow = $row;
+                        
+                        // Style primary group cell
+                        $sheet->getStyle("A{$row}")->applyFromArray([
+                            'font' => ['bold' => true],
+                            'fill' => [
+                                'fillType' => \PhpOffice\PhpSpreadsheet\Style\Fill::FILL_SOLID,
+                                'startColor' => ['rgb' => 'F5F5F5']
+                            ]
+                        ]);
+                    }
+
+                    // Add row data
+                    $data = [];
+                    foreach ($file['summary']['groupBy'] as $column) {
+                        $data[] = $result->$column;
+                    }
+                    $data[] = $result->count;
+                    $data[] = $result->aggregate_value;
+                    $sheet->fromArray($data, null, 'A' . $row);
+                    
+                    $row++;
+                }
+
+                // Merge cells for the last group
+                if ($currentGroup !== null && $row > $groupStartRow) {
+                    $sheet->mergeCells("A{$groupStartRow}:A" . ($row - 1));
+                }
+
+                // Add borders
+                $borderStyle = [
+                    'borders' => [
+                        'allBorders' => [
+                            'borderStyle' => \PhpOffice\PhpSpreadsheet\Style\Border::BORDER_THIN
+                        ]
+                    ]
+                ];
+                $sheet->getStyle('A1:' . \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex(count($headers)) . ($row - 1))
+                      ->applyFromArray($borderStyle);
+
+                // Auto-size columns
+                foreach (range('A', $sheet->getHighestColumn()) as $col) {
+                    $sheet->getColumnDimension($col)->setAutoSize(true);
+                }
             }
 
             // Create Excel writer
@@ -341,7 +332,7 @@ class ExcelController extends Controller
             $writer->save($tempFile);
 
             // Return file
-            return response()->download($tempFile, 'analysis_results.xlsx')->deleteFileAfterSend(true);
+            return response()->download($tempFile, 'combined_analysis_results.xlsx')->deleteFileAfterSend(true);
         } catch (\Exception $e) {
             \Log::error('Export error: ' . $e->getMessage());
             return response()->json([
