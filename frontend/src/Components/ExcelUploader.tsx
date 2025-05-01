@@ -2,10 +2,12 @@ import React, { FC, useState, useMemo, useEffect } from 'react';
 import { Box, Button, Typography, CircularProgress, Chip, ThemeProvider, createTheme, Snackbar, Alert, FormControl, InputLabel, Select, MenuItem, Dialog, DialogTitle, DialogContent, DialogContentText, DialogActions, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Paper, TextField } from '@mui/material';
 import { DataGrid, GridColDef } from '@mui/x-data-grid';
 import { useNavigate } from 'react-router-dom';
-import UploadFileIcon, { CloudUploadOutlined, Upload } from '@mui/icons-material';
+import UploadFileIcon, { CloudUploadOutlined, Upload, Visibility } from '@mui/icons-material';
 import api from '../api';
 import DataFilter, { FilterCondition } from './DataFilter';
 import { useData } from '../context/DataContext';
+import { List, ListItem, ListItemButton, ListItemIcon, ListItemText } from '@mui/material';
+import { Checkbox } from '@mui/material';
 
 interface RowData {
   id: number;
@@ -46,6 +48,8 @@ const ExcelUploader: FC<ExcelUploaderProps> = ({ onData }) => {
     const savedNames = localStorage.getItem('uploadedFileNames');
     return savedNames ? JSON.parse(savedNames) : [];
   });
+  const [visibleColumns, setVisibleColumns] = useState<string[]>([]);
+  const [columnDialogOpen, setColumnDialogOpen] = useState(false);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -241,8 +245,27 @@ const ExcelUploader: FC<ExcelUploaderProps> = ({ onData }) => {
         headerName: field,
         flex: 1,
         filterable: true,
+        hide: !visibleColumns.includes(field),
       } as GridColDef));
+  }, [rows, visibleColumns]);
+
+  useEffect(() => {
+    if (rows.length > 0) {
+      // Initialize visible columns with all columns except 'id'
+      const allColumns = Object.keys(rows[0]).filter(key => key !== 'id');
+      setVisibleColumns(allColumns);
+    }
   }, [rows]);
+
+  const handleColumnVisibilityChange = (column: string, isVisible: boolean) => {
+    setVisibleColumns(prev => {
+      if (isVisible) {
+        return [...prev, column];
+      } else {
+        return prev.filter(col => col !== column);
+      }
+    });
+  };
 
   const rtlTheme = createTheme({
     direction: 'rtl',
@@ -577,6 +600,21 @@ const ExcelUploader: FC<ExcelUploaderProps> = ({ onData }) => {
               </Button>
             </Box>
             <Box sx={{ height: 500, mt: 2, direction: 'rtl' }}>
+              <Box sx={{ mb: 2, display: 'flex', justifyContent: 'flex-end' }}>
+                <Button
+                  variant="contained"
+                  onClick={() => setColumnDialogOpen(true)}
+                  startIcon={<Visibility />}
+                  sx={{
+                    backgroundColor: 'primary.main',
+                    '&:hover': {
+                      backgroundColor: 'primary.dark',
+                    }
+                  }}
+                >
+                  Manage Columns
+                </Button>
+              </Box>
               <DataGrid
                 rows={filteredRows}
                 columns={columns}
@@ -624,6 +662,54 @@ const ExcelUploader: FC<ExcelUploaderProps> = ({ onData }) => {
                 }}
               />
             </Box>
+
+            <Dialog
+              open={columnDialogOpen}
+              onClose={() => setColumnDialogOpen(false)}
+              maxWidth="sm"
+              fullWidth
+            >
+              <DialogTitle>Manage Columns</DialogTitle>
+              <DialogContent>
+                <List>
+                  {Object.keys(rows[0] || {})
+                    .filter(key => key !== 'id')
+                    .map((column) => (
+                      <ListItem key={column}>
+                        <ListItemButton onClick={() => handleColumnVisibilityChange(column, !visibleColumns.includes(column))}>
+                          <ListItemIcon>
+                            <Checkbox
+                              edge="start"
+                              checked={visibleColumns.includes(column)}
+                              tabIndex={-1}
+                              disableRipple
+                            />
+                          </ListItemIcon>
+                          <ListItemText primary={column} />
+                        </ListItemButton>
+                      </ListItem>
+                    ))}
+                </List>
+              </DialogContent>
+              <DialogActions>
+                <Button onClick={() => setColumnDialogOpen(false)}>Close</Button>
+                <Button
+                  onClick={() => {
+                    const allColumns = Object.keys(rows[0]).filter(key => key !== 'id');
+                    setVisibleColumns(allColumns);
+                  }}
+                >
+                  Show All
+                </Button>
+                <Button
+                  onClick={() => {
+                    setVisibleColumns([]);
+                  }}
+                >
+                  Hide All
+                </Button>
+              </DialogActions>
+            </Dialog>
           </>
         )}
 

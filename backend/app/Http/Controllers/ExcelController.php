@@ -268,7 +268,7 @@ class ExcelController extends Controller
                 $groupStartRow = $row;
                 
                 foreach ($file['data'] as $result) {
-                    $primaryGroupValue = $result->{$file['summary']['groupBy'][0]};
+                    $primaryGroupValue = $result[$file['summary']['groupBy'][0]];
                     
                     // If we're starting a new group
                     if ($currentGroup !== $primaryGroupValue) {
@@ -293,10 +293,10 @@ class ExcelController extends Controller
                     // Add row data
                     $data = [];
                     foreach ($file['summary']['groupBy'] as $column) {
-                        $data[] = $result->$column;
+                        $data[] = $result[$column];
                     }
-                    $data[] = $result->count;
-                    $data[] = $result->aggregate_value;
+                    $data[] = $result['count'];
+                    $data[] = $result['aggregate_value'];
                     $sheet->fromArray($data, null, 'A' . $row);
                     
                     $row++;

@@ -430,14 +430,18 @@ const DataAnalysis: FC = () => {
   const handleExport = async () => {
     if (analysisResults.length === 0) return;
 
+    const tempfiles = analysisResults.map(fileAnalysis => ({
+      data: fileAnalysis.result.data,
+      summary: fileAnalysis.result.summary,
+      customHeaders: fileAnalysis.customHeaders,
+      fileName: fileAnalysis.fileName
+    }));
+
+    console.log('tempfiles:', tempfiles[0]['customHeaders']['کد کالا']);
+    console.log('tempfiles:', tempfiles[0]);
     try {
       const response = await api.post('/export-analysis', {
-        files: analysisResults.map(fileAnalysis => ({
-          data: fileAnalysis.result.data,
-          summary: fileAnalysis.result.summary,
-          customHeaders: fileAnalysis.customHeaders,
-          fileName: fileAnalysis.fileName
-        }))
+        files: tempfiles
       }, {
         responseType: 'blob'
       });
