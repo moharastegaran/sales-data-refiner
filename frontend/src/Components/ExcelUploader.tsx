@@ -1,10 +1,11 @@
-import React, { FC, useState, useMemo } from 'react';
-import { Box, Button, Typography, CircularProgress, Chip, ThemeProvider, createTheme, Snackbar, Alert, FormControl, InputLabel, Select, MenuItem, Dialog, DialogTitle, DialogContent, DialogActions, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Paper, TextField } from '@mui/material';
+import React, { FC, useState, useMemo, useEffect } from 'react';
+import { Box, Button, Typography, CircularProgress, Chip, ThemeProvider, createTheme, Snackbar, Alert, FormControl, InputLabel, Select, MenuItem, Dialog, DialogTitle, DialogContent, DialogContentText, DialogActions, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Paper, TextField } from '@mui/material';
 import { DataGrid, GridColDef } from '@mui/x-data-grid';
 import { useNavigate } from 'react-router-dom';
 import UploadFileIcon, { CloudUploadOutlined, Upload } from '@mui/icons-material';
 import api from '../api';
 import DataFilter, { FilterCondition } from './DataFilter';
+import { useData } from '../context/DataContext';
 
 interface RowData {
   id: number;
@@ -16,7 +17,7 @@ interface ExcelUploaderProps {
 }
 
 const ExcelUploader: FC<ExcelUploaderProps> = ({ onData }) => {
-  const navigate = useNavigate();
+  const { setData } = useData();
   const [rows, setRows] = useState<RowData[]>([]);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -36,6 +37,27 @@ const ExcelUploader: FC<ExcelUploaderProps> = ({ onData }) => {
   const [dateSplitApplied, setDateSplitApplied] = useState(false);
   const [customColumnValue, setCustomColumnValue] = useState<string>('');
   const [customColumnName, setCustomColumnName] = useState<string>('');
+  const [uploadedFilesCount, setUploadedFilesCount] = useState<number>(() => {
+    const savedResults = localStorage.getItem('analysisResults');
+    return savedResults ? JSON.parse(savedResults).length : 0;
+  });
+  const [confirmDialogOpen, setConfirmDialogOpen] = useState(false);
+  const [uploadedFileNames, setUploadedFileNames] = useState<string[]>(() => {
+    const savedNames = localStorage.getItem('uploadedFileNames');
+    return savedNames ? JSON.parse(savedNames) : [];
+  });
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    const savedResults = localStorage.getItem('analysisResults');
+    if (savedResults) {
+      setUploadedFilesCount(JSON.parse(savedResults).length);
+    }
+  }, []);
+
+  useEffect(() => {
+    localStorage.setItem('uploadedFileNames', JSON.stringify(uploadedFileNames));
+  }, [uploadedFileNames]);
 
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -46,6 +68,7 @@ const ExcelUploader: FC<ExcelUploaderProps> = ({ onData }) => {
       const formData = new FormData();
       formData.append('file', file);
       setUploadedFile(file);
+      setUploadedFileNames(prev => [...prev, file.name]);
 
       const sheetsResponse = await api.post<string[]>('get-sheets', formData, {
         headers: { 'Content-Type': 'multipart/form-data' }
@@ -154,6 +177,7 @@ const ExcelUploader: FC<ExcelUploaderProps> = ({ onData }) => {
         severity: 'success',
       });
       
+      setData(filteredRows);
       navigate('/analysis');
     } catch (error) {
       console.error('Error saving data:', error);
@@ -224,6 +248,26 @@ const ExcelUploader: FC<ExcelUploaderProps> = ({ onData }) => {
     direction: 'rtl',
   });
 
+  const handleStartOver = async () => {
+    try {
+      await api.delete('/clear-data');
+      localStorage.clear();
+      setRows([]);
+      setFilteredRows([]);
+      setSheets([]);
+      setSelectedSheet('');
+      setUploadedFile(null);
+      setDateColumn('');
+      setDateSplitApplied(false);
+      setCustomColumnName('');
+      setCustomColumnValue('');
+      setUploadedFilesCount(0);
+      setUploadedFileNames([]);
+    } catch (error) {
+      console.error('Error clearing data:', error);
+    }
+  };
+
   return (
     <ThemeProvider theme={rtlTheme}>
       <Box p={4}>
@@ -246,35 +290,128 @@ const ExcelUploader: FC<ExcelUploaderProps> = ({ onData }) => {
           >
             Upload & Preview
           </Typography>
-          <Button 
-            variant="outlined" 
-            component="label" 
-            sx={{ 
-              mt: 2,
-              py: 1.5,
-              px: 4,
-              fontSize: '1.1rem',
-              letterSpacing: '0.1em',
-              boxShadow: 1,
-              '&:hover': {
-                boxShadow: 6,
-                transform: 'translateY(-2px)',
-                transition: 'all 0.2s ease-in-out'
-              }
-            }}
-            disabled={loading}
-          >
-            <Upload sx={{ mr: 1 }} />
-            Upload File
-            <input
-              hidden
-              type="file"
-              accept=".xlsx,.csv"
-              onChange={handleUpload}
+
+          {uploadedFileNames.length > 0 && (
+            <Paper 
+              elevation={1} 
+              sx={{ 
+                p: 2, 
+                mb: 3, 
+                width: '100%', 
+                maxWidth: 600,
+                backgroundColor: 'background.paper'
+              }}
+            >
+              <Typography variant="h6" gutterBottom>
+                Uploaded Files
+              </Typography>
+              <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+                {uploadedFileNames.map((fileName, index) => (
+                  <Chip
+                    key={index}
+                    label={fileName}
+                    onDelete={() => {
+                      setUploadedFileNames(prev => prev.filter((_, i) => i !== index));
+                    }}
+                    sx={{ m: 0.5 }}
+                  />
+                ))}
+              </Box>
+            </Paper>
+          )}
+
+          <Box sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
+            <Button 
+              variant="outlined" 
+              component="label" 
+              sx={{ 
+                py: 1.5,
+                px: 4,
+                fontSize: '1.1rem',
+                letterSpacing: '0.1em',
+                boxShadow: 1,
+                '&:hover': {
+                  boxShadow: 6,
+                  transform: 'translateY(-2px)',
+                  transition: 'all 0.2s ease-in-out'
+                }
+              }}
               disabled={loading}
-            />
-          </Button>
+            >
+              <Upload sx={{ mr: 1 }} />
+              Upload File
+              <input
+                hidden
+                type="file"
+                accept=".xlsx,.csv"
+                onChange={handleUpload}
+                disabled={loading}
+              />
+            </Button>
+            <Button
+              variant="contained"
+              onClick={() => navigate('/analysis')}
+              sx={{
+                py: 1.5,
+                px: 4,
+                fontSize: '1.1rem',
+                letterSpacing: '0.1em',
+                boxShadow: 1,
+                '&:hover': {
+                  boxShadow: 6,
+                  transform: 'translateY(-2px)',
+                  transition: 'all 0.2s ease-in-out'
+                }
+              }}
+            >
+              Go to Analysis
+            </Button>
+            <Button
+              variant="outlined"
+              color="error"
+              onClick={() => setConfirmDialogOpen(true)}
+              sx={{
+                py: 1.5,
+                px: 4,
+                fontSize: '1.1rem',
+                letterSpacing: '0.1em',
+                boxShadow: 1,
+                '&:hover': {
+                  boxShadow: 6,
+                  transform: 'translateY(-2px)',
+                  transition: 'all 0.2s ease-in-out'
+                }
+              }}
+            >
+              Start Over
+            </Button>
+          </Box>
+          <Typography variant="body2" color="text.secondary" sx={{ mt: 2 }}>
+            You have uploaded {uploadedFilesCount > 0 ? `${uploadedFilesCount} files so far` : `No file yet`}
+          </Typography>
         </Box>
+
+        <Dialog
+          open={confirmDialogOpen}
+          onClose={() => setConfirmDialogOpen(false)}
+        >
+          <DialogTitle>Start Over</DialogTitle>
+          <DialogContent>
+            <DialogContentText>
+              Are you sure you want to start over? This will clear all uploaded data and analysis results.
+              This action cannot be undone.
+            </DialogContentText>
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={() => setConfirmDialogOpen(false)}>Cancel</Button>
+            <Button onClick={() => {
+              handleStartOver();
+              setConfirmDialogOpen(false);
+            }} color="error" variant="contained">
+              Start Over
+            </Button>
+          </DialogActions>
+        </Dialog>
 
         {loading && (
           <Box sx={{ display: 'flex', justifyContent: 'center', mt: 3 }}>

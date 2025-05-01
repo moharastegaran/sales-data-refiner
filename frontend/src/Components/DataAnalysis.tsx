@@ -76,8 +76,14 @@ interface NestedRow {
 const DataAnalysis: FC = () => {
   const { data } = useData();
   const [loading, setLoading] = useState(false);
-  const [analysisResults, setAnalysisResults] = useState<FileAnalysis[]>([]);
-  const [currentFileIndex, setCurrentFileIndex] = useState<number>(0);
+  const [analysisResults, setAnalysisResults] = useState<FileAnalysis[]>(() => {
+    const savedResults = localStorage.getItem('analysisResults');
+    return savedResults ? JSON.parse(savedResults) : [];
+  });
+  const [currentFileIndex, setCurrentFileIndex] = useState<number>(() => {
+    const savedIndex = localStorage.getItem('currentFileIndex');
+    return savedIndex ? parseInt(savedIndex, 10) : 0;
+  });
   const [selectedGroupColumns, setSelectedGroupColumns] = useState<string[]>([]);
   const [aggregateColumn, setAggregateColumn] = useState<string>('');
   const [aggregateFunction, setAggregateFunction] = useState<string>('sum');
@@ -90,32 +96,11 @@ const DataAnalysis: FC = () => {
 
   useEffect(() => {
     console.log(`localStorage.getItem('currentFileIndex'): ${localStorage.getItem('currentFileIndex')}`);
-    const savedAnalysisResults = localStorage.getItem('analysisResults');
-    const savedCurrentFileIndex = localStorage.getItem('currentFileIndex');
     const savedCustomHeaders = localStorage.getItem('customHeaders');
-    
-    if (savedAnalysisResults) {
-      try {
-        const parsedResults = JSON.parse(savedAnalysisResults);
-        console.log(`parsedResults: ${localStorage.getItem('analysisResults')}`);
-        setAnalysisResults(parsedResults);
-      } catch (error) {
-        console.error('Error parsing saved analysis results:', error);
-      }
-    }
-    
-    if (savedCurrentFileIndex) {
-      try {
-        setCurrentFileIndex(parseInt(savedCurrentFileIndex, 10));
-      } catch (error) {
-        console.error('Error parsing saved current file index:', error);
-      }
-    }
     
     if (savedCustomHeaders) {
       try {
         setCustomHeaders(JSON.parse(savedCustomHeaders));
-        console.log(`customHeaders ${savedCustomHeaders}`);
       } catch (error) {
         console.error('Error parsing saved custom headers:', error);
       }
@@ -124,18 +109,14 @@ const DataAnalysis: FC = () => {
 
   useEffect(() => {
     localStorage.setItem('analysisResults', JSON.stringify(analysisResults));
-    setCurrentFileIndex(analysisResults.length);
-    console.log(`currentFileIndex changed to : ${currentFileIndex}`);
   }, [analysisResults]);
   
   useEffect(() => {
     localStorage.setItem('currentFileIndex', currentFileIndex.toString());
-    console.log(`currentFileIndex changed to : ${currentFileIndex}`);
+    console.log(`localStorage.getItem('currentFileIndex'): ${currentFileIndex}`);
+
+    console.log(`currentFileIndex int useeffect([currentFileIndex]) to : ${currentFileIndex}`);
   }, [currentFileIndex]);
-  
-  useEffect(() => {
-    localStorage.setItem('customHeaders', JSON.stringify(customHeaders));
-  }, [customHeaders]);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -189,14 +170,36 @@ const DataAnalysis: FC = () => {
         aggregateFunction
       });
 
+      console.log('Analysis response:', response.data);
+
+      if (!response.data.success) {
+        throw new Error(response.data.error || 'Analysis failed');
+      }
+
       const newFileAnalysis: FileAnalysis = {
         id: Date.now().toString(),
         fileName: `File ${analysisResults.length + 1}`,
-        result: response.data,
+        result: {
+          data: response.data.data,
+          summary: {
+            totalGroups: response.data.summary.totalGroups,
+            groupBy: response.data.summary.groupBy,
+            aggregateColumn: response.data.summary.aggregateColumn,
+            aggregateFunction: response.data.summary.aggregateFunction
+          }
+        },
         customHeaders: { ...customHeaders }
       };
 
-      setAnalysisResults(prev => [...prev, newFileAnalysis]);
+      console.log('New file analysis:', newFileAnalysis);
+
+      // First update analysisResults
+      const newResults = [...analysisResults, newFileAnalysis];
+      setAnalysisResults(newResults);
+      
+      // Then update currentFileIndex
+      const newIndex = newResults.length - 1;
+      setCurrentFileIndex(newIndex);
 
       setExpandedRows(new Set());
     } catch (error) {
@@ -311,14 +314,20 @@ const DataAnalysis: FC = () => {
   };
 
   const processedData = useMemo(() => {
-    if (!analysisResults[currentFileIndex]?.result) return [];
+    if (!analysisResults[currentFileIndex]?.result?.data) {
+      console.log('No result data available');
+      return [];
+    }
+
+    const result = analysisResults[currentFileIndex].result;
+    console.log('Processing data:', result);
 
     const groupedData: GroupedData[] = [];
-    const groupByColumns = analysisResults[currentFileIndex]?.result.summary.groupBy;
+    const groupByColumns = result.summary.groupBy;
 
     // Group the data by the first level
     const firstLevelGroups = new Map<string, any[]>();
-    analysisResults[currentFileIndex]?.result.data.forEach(item => {
+    result.data.forEach(item => {
       const key = item[groupByColumns[0]];
       if (!firstLevelGroups.has(key)) {
         firstLevelGroups.set(key, []);
@@ -328,8 +337,8 @@ const DataAnalysis: FC = () => {
 
     // Process each first level group
     firstLevelGroups.forEach((items, key) => {
-      const totalAggregate = items.reduce((sum, item) => sum + item.aggregate_value, 0);
-      const totalCount = items.reduce((sum, item) => sum + item.count, 0);
+      const totalAggregate = items.reduce((sum, item) => sum + Number(item.aggregate_value), 0);
+      const totalCount = items.reduce((sum, item) => sum + Number(item.count), 0);
 
       groupedData.push({
         primaryKey: key,
@@ -339,25 +348,20 @@ const DataAnalysis: FC = () => {
       });
     });
 
+    console.log('Processed data:', groupedData);
     return groupedData;
   }, [analysisResults, currentFileIndex]);
 
   const renderTable = () => {
-    if (!analysisResults[currentFileIndex]?.result || !processedData.length) return null;
+    if (!analysisResults[currentFileIndex]?.result?.data || !processedData.length) {
+      console.log('Cannot render table - missing data');
+      return null;
+    }
 
-    const groupByColumns = analysisResults[currentFileIndex]?.result.summary.groupBy;
-    const aggregateColumn = analysisResults[currentFileIndex]?.result.summary.aggregateColumn;
-    const aggregateFunction = analysisResults[currentFileIndex]?.result.summary.aggregateFunction;
-
-    // Process data to create groups
-    const groupedByType = processedData.reduce((acc, item) => {
-      const key = item.primaryKey;
-      if (!acc[key]) {
-        acc[key] = [];
-      }
-      acc[key].push(item);
-      return acc;
-    }, {} as Record<string, any[]>);
+    const result = analysisResults[currentFileIndex].result;
+    const groupByColumns = result.summary.groupBy;
+    const aggregateColumn = result.summary.aggregateColumn;
+    const aggregateFunction = result.summary.aggregateFunction;
 
     return (
       <TableContainer component={Paper}>
@@ -396,29 +400,27 @@ const DataAnalysis: FC = () => {
             </TableRow>
           </TableHead>
           <TableBody>
-            {Object.entries(groupedByType).map(([groupKey, items], groupIndex) => {
-              const rowCount = items.reduce((sum, group) => sum + group.items.length, 0);
-              
-              return items.map((group, itemIndex) => (
-                group.items.map((item: { [key: string]: any; count: number; aggregate_value: number }, subIndex: number) => (
-                  <TableRow key={`${groupIndex}-${itemIndex}-${subIndex}`}>
-                    {subIndex === 0 && itemIndex === 0 ? (
+            {processedData.map((group, groupIndex) => (
+              <React.Fragment key={group.primaryKey}>
+                {group.items.map((item, itemIndex) => (
+                  <TableRow key={`${groupIndex}-${itemIndex}`}>
+                    {itemIndex === 0 && (
                       <TableCell 
-                        rowSpan={rowCount} 
+                        rowSpan={group.items.length} 
                         sx={{ backgroundColor: '#f5f5f5' }}
                       >
-                        {groupKey}
+                        {group.primaryKey}
                       </TableCell>
-                    ) : null}
+                    )}
                     {groupByColumns.slice(1).map((col, colIndex) => (
                       <TableCell key={colIndex}>{item[col]}</TableCell>
                     ))}
                     <TableCell align="right">{item.count}</TableCell>
-                    <TableCell align="right">{item.aggregate_value.toFixed(2)}</TableCell>
+                    <TableCell align="right">{Number(item.aggregate_value).toFixed(2)}</TableCell>
                   </TableRow>
-                ))
-              ));
-            })}
+                ))}
+              </React.Fragment>
+            ))}
           </TableBody>
         </Table>
       </TableContainer>
@@ -477,7 +479,9 @@ const DataAnalysis: FC = () => {
 
   return (
     <Box p={4}>
-      <Typography variant="h5" gutterBottom>Data Analysis</Typography>
+      <Typography variant="h5" gutterBottom>
+        Data Analysis {analysisResults[currentFileIndex]?.fileName && `(${analysisResults[currentFileIndex].fileName})`}
+      </Typography>
       
       <Paper sx={{ p: 3, mb: 3 }}>
         <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 3 }}>
