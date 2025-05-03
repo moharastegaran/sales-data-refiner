@@ -31,6 +31,7 @@ import { KeyboardArrowDown, KeyboardArrowUp, Download, BarChartOutlined, Storage
 import { useData } from '../context/DataContext';
 import api from '../api';
 import { useNavigate } from 'react-router-dom';
+import { dispatchMainKeyArray } from '../types/KeyMaps';
 
 interface AnalysisResult {
   data: Array<{
@@ -437,8 +438,6 @@ const DataAnalysis: FC = () => {
       fileName: fileAnalysis.fileName
     }));
 
-    console.log('tempfiles:', tempfiles[0]['customHeaders']['کد کالا']);
-    console.log('tempfiles:', tempfiles[0]);
     try {
       const response = await api.post('/export-analysis', {
         files: tempfiles
@@ -468,6 +467,7 @@ const DataAnalysis: FC = () => {
       localStorage.removeItem('analysisResults');
       localStorage.removeItem('currentFileIndex');
       localStorage.removeItem('customHeaders');
+      localStorage.removeItem('uploadedFileNames');
       
       // Reset state
       setAnalysisResults([]);
@@ -479,6 +479,22 @@ const DataAnalysis: FC = () => {
     } catch (error) {
       console.error('Error clearing data:', error);
     }
+  };
+
+  const getColumnLabel = (column: string) => {
+    // Check if there's a "پخش" column in the data
+    const pooshColumn = data.find(row => 'پخش' in row);
+    if (pooshColumn) {
+      const pooshValue = pooshColumn['پخش'];
+      // Check if the value exists in dispatchMainKeyArray
+      if (pooshValue && dispatchMainKeyArray[pooshValue]) {
+        // If column exists in the array, add asterisk
+        if (dispatchMainKeyArray[pooshValue].includes(column)) {
+          return `** ${column} **`;
+        }
+      }
+    }
+    return column;
   };
 
   return (
@@ -500,14 +516,14 @@ const DataAnalysis: FC = () => {
                 renderValue={(selected) => (
                   <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
                     {selected.map((value) => (
-                      <Chip key={value} label={value} />
+                      <Chip key={value} label={getColumnLabel(value)} />
                     ))}
                   </Box>
                 )}
               >
                 {availableColumns.map((column) => (
                   <MenuItem key={column} value={column}>
-                    {column}
+                    {getColumnLabel(column)}
                   </MenuItem>
                 ))}
               </Select>
@@ -560,11 +576,11 @@ const DataAnalysis: FC = () => {
             </Button>
             <Button
               variant="outlined"
-              color="primary"
+              color="error"
               onClick={() => setConfirmDialogOpen(true)}
             >
               <Storage sx={{ mr: 1 }} />
-              New Data Entry
+              Reset Data Entry
             </Button>
           </Box>
         </Box>
