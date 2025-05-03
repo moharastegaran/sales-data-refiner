@@ -228,69 +228,33 @@ class ExcelController extends Controller
                 'files.*.fileName' => 'required|string'
             ]);
 
-            // Create Excel file
+            // Create Excel file with a single sheet
             $spreadsheet = new \PhpOffice\PhpSpreadsheet\Spreadsheet();
+            $sheet = $spreadsheet->getActiveSheet();
+            $sheet->setTitle('Combined Analysis');
+
+            // Get headers from the last file
+            $lastFile = end($params['files']);
+            $headers = [];
+            foreach ($lastFile['summary']['groupBy'] as $column) {
+                $headers[] = $lastFile['customHeaders'][$column] ?? $column;
+            }
+            $headers[] = $lastFile['customHeaders']['count'] ?? 'Count';
+            $headers[] = $lastFile['customHeaders'][$lastFile['summary']['aggregateFunction'] . '(' . $lastFile['summary']['aggregateColumn'] . ')'] 
+                        ?? $lastFile['summary']['aggregateFunction'] . '(' . $lastFile['summary']['aggregateColumn'] . ')';
             
-            // Process each file
-            foreach ($params['files'] as $index => $file) {
-                // Create a new sheet for each file
-                if ($index > 0) {
-                    $spreadsheet->createSheet();
-                }
-                $sheet = $spreadsheet->getSheet($index);
-                $sheet->setTitle(substr($file['fileName'], 0, 31)); // Excel sheet names are limited to 31 chars
+            // Set headers
+            $sheet->fromArray($headers, null, 'A1');
 
-                // Set headers with custom names if provided
-                $headers = [];
-                foreach ($file['summary']['groupBy'] as $column) {
-                    $headers[] = $file['customHeaders'][$column] ?? $column;
-                }
-                $headers[] = $file['customHeaders']['count'] ?? 'Count';
-                $headers[] = $file['customHeaders'][$file['summary']['aggregateFunction'] . '(' . $file['summary']['aggregateColumn'] . ')'] 
-                            ?? $file['summary']['aggregateFunction'] . '(' . $file['summary']['aggregateColumn'] . ')';
-                
-                $sheet->fromArray($headers, null, 'A1');
+            // Start writing data from row 2
+            $row = 2;
 
-                // Style headers
-                $headerStyle = [
-                    'font' => ['bold' => true],
-                    'fill' => [
-                        'fillType' => \PhpOffice\PhpSpreadsheet\Style\Fill::FILL_SOLID,
-                        'startColor' => ['rgb' => 'E0E0E0']
-                    ]
-                ];
-                $sheet->getStyle('A1:' . \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex(count($headers)) . '1')
-                      ->applyFromArray($headerStyle);
-
-                // Add data with merged cells for primary groups
-                $row = 2;
+            // Process each file's data
+            foreach ($params['files'] as $file) {
                 $currentGroup = null;
                 $groupStartRow = $row;
-                
-                foreach ($file['data'] as $result) {
-                    $primaryGroupValue = $result[$file['summary']['groupBy'][0]];
-                    
-                    // If we're starting a new group
-                    if ($currentGroup !== $primaryGroupValue) {
-                        // Merge cells for previous group if exists
-                        if ($currentGroup !== null && $row > $groupStartRow) {
-                            $sheet->mergeCells("A{$groupStartRow}:A" . ($row - 1));
-                        }
-                        
-                        $currentGroup = $primaryGroupValue;
-                        $groupStartRow = $row;
-                        
-                        // Style primary group cell
-                        $sheet->getStyle("A{$row}")->applyFromArray([
-                            'font' => ['bold' => true],
-                            'fill' => [
-                                'fillType' => \PhpOffice\PhpSpreadsheet\Style\Fill::FILL_SOLID,
-                                'startColor' => ['rgb' => 'F5F5F5']
-                            ]
-                        ]);
-                    }
 
-                    // Add row data
+                foreach ($file['data'] as $result) {
                     $data = [];
                     foreach ($file['summary']['groupBy'] as $column) {
                         $data[] = $result[$column];
@@ -298,30 +262,24 @@ class ExcelController extends Controller
                     $data[] = $result['count'];
                     $data[] = $result['aggregate_value'];
                     $sheet->fromArray($data, null, 'A' . $row);
-                    
                     $row++;
                 }
+            }
 
-                // Merge cells for the last group
-                if ($currentGroup !== null && $row > $groupStartRow) {
-                    $sheet->mergeCells("A{$groupStartRow}:A" . ($row - 1));
-                }
-
-                // Add borders
-                $borderStyle = [
-                    'borders' => [
-                        'allBorders' => [
-                            'borderStyle' => \PhpOffice\PhpSpreadsheet\Style\Border::BORDER_THIN
-                        ]
+            // Add borders
+            $borderStyle = [
+                'borders' => [
+                    'allBorders' => [
+                        'borderStyle' => \PhpOffice\PhpSpreadsheet\Style\Border::BORDER_THIN
                     ]
-                ];
-                $sheet->getStyle('A1:' . \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex(count($headers)) . ($row - 1))
-                      ->applyFromArray($borderStyle);
+                ]
+            ];
+            $sheet->getStyle('A1:' . \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex(count($headers)) . ($row - 1))
+                  ->applyFromArray($borderStyle);
 
-                // Auto-size columns
-                foreach (range('A', $sheet->getHighestColumn()) as $col) {
-                    $sheet->getColumnDimension($col)->setAutoSize(true);
-                }
+            // Auto-size columns
+            foreach (range('A', $sheet->getHighestColumn()) as $col) {
+                $sheet->getColumnDimension($col)->setAutoSize(true);
             }
 
             // Create Excel writer
