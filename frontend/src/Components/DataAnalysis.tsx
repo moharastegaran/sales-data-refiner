@@ -96,7 +96,6 @@ const DataAnalysis: FC = () => {
   const [addFileDialogOpen, setAddFileDialogOpen] = useState(false);
 
   useEffect(() => {
-    console.log(`localStorage.getItem('currentFileIndex'): ${localStorage.getItem('currentFileIndex')}`);
     const savedCustomHeaders = localStorage.getItem('customHeaders');
     
     if (savedCustomHeaders) {
@@ -114,9 +113,6 @@ const DataAnalysis: FC = () => {
   
   useEffect(() => {
     localStorage.setItem('currentFileIndex', currentFileIndex.toString());
-    console.log(`localStorage.getItem('currentFileIndex'): ${currentFileIndex}`);
-
-    console.log(`currentFileIndex int useeffect([currentFileIndex]) to : ${currentFileIndex}`);
   }, [currentFileIndex]);
 
   useEffect(() => {
@@ -171,7 +167,6 @@ const DataAnalysis: FC = () => {
         aggregateFunction
       });
 
-      console.log('Analysis response:', response.data);
 
       if (!response.data.success) {
         throw new Error(response.data.error || 'Analysis failed');
@@ -191,9 +186,6 @@ const DataAnalysis: FC = () => {
         },
         customHeaders: { ...customHeaders }
       };
-
-      console.log('New file analysis:', newFileAnalysis);
-
       // First update analysisResults
       const newResults = [...analysisResults, newFileAnalysis];
       setAnalysisResults(newResults);

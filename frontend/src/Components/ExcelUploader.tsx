@@ -34,6 +34,7 @@ const ExcelUploader: FC<ExcelUploaderProps> = ({ onData }) => {
     severity: 'success',
   });
   const [dateColumn, setDateColumn] = useState<string>('');
+  const [dateDelimiter, setDateDelimiter] = useState<string>('');
   const [showDatePreview, setShowDatePreview] = useState(false);
   const [previewData, setPreviewData] = useState<RowData[]>([]);
   const [dateSplitApplied, setDateSplitApplied] = useState(false);
@@ -139,12 +140,42 @@ const ExcelUploader: FC<ExcelUploaderProps> = ({ onData }) => {
     setDateColumn(column);
     if (rows.length > 0) {
       const updatedRows = rows.map(row => {
-        const dateStr = String(row[column]);
+        // Get the date string and discard everything after space
+        const dateStr = String(row[column]).split(' ')[0];
+        let year, month, day;
+        
+        if (dateDelimiter && dateStr.includes(dateDelimiter)) {
+          // Split by delimiter if it exists
+          const parts = dateStr.split(dateDelimiter);
+          if (parts.length >= 3) {
+            // Find the year (4 digits)
+            const yearIndex = parts.findIndex(part => part.length === 4);
+            if (yearIndex !== -1) {
+              year = parts[yearIndex];
+              // Remove year from parts
+              parts.splice(yearIndex, 1);
+            }
+            
+            // Middle part is day, other is month
+            if (parts.length >= 2) {
+              day = parts[1]; // Middle part
+              month = parts[0]; // First remaining part
+            }
+          }
+        }
+        
+        // If we couldn't determine parts or no delimiter, use sequential
+        if (!year || !month || !day) {
+          year = dateStr.substring(0, 4);
+          month = dateStr.substring(4, 6).padStart(2, '0');
+          day = dateStr.substring(6, 8).padStart(2, '0');
+        }
+
         return {
           ...row,
-          [`${column}_year`]: dateStr.substring(0, 4),
-          [`${column}_month`]: dateStr.substring(4, 6),
-          [`${column}_day`]: dateStr.substring(6, 8)
+          [`${column}_year`]: year,
+          [`${column}_month`]: month,
+          [`${column}_day`]: day
         };
       });
       
@@ -546,6 +577,15 @@ const ExcelUploader: FC<ExcelUploaderProps> = ({ onData }) => {
                     ))}
                 </Select>
               </FormControl>
+              <TextField
+                label="Date Delimiter"
+                value={dateDelimiter}
+                onChange={(e) => setDateDelimiter(e.target.value)}
+                disabled={dateSplitApplied}
+                placeholder="e.g. - or /"
+                sx={{ width: 150 }}
+                helperText="Leave empty for sequential dates"
+              />
               {dateSplitApplied && (
                 <Button
                   variant="text"
@@ -565,6 +605,7 @@ const ExcelUploader: FC<ExcelUploaderProps> = ({ onData }) => {
                     onData(updatedRows);
                     setDateSplitApplied(false);
                     setDateColumn('');
+                    setDateDelimiter('');
                   }}
                 >
                   Revert Date Split
