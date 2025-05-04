@@ -46,10 +46,23 @@ class ExcelController extends Controller
             $headers = $collection->shift()->toArray();
             \Log::info('Headers extracted: ' . json_encode($headers));
 
+            // Helper function to process numeric values
+            $processNumericValue = function($value) {
+                if (is_numeric($value)) {
+                    return $value;
+                }
+                // Remove thousand separators and convert to float
+                $cleaned = str_replace(',', '', $value);
+                return is_numeric($cleaned) ? floatval($cleaned) : $value;
+            };
+
             $rows = $collection
-                ->map(function($row) use ($headers) {
+                ->map(function($row) use ($headers, $processNumericValue) {
                     try {
-                        return array_combine($headers, $row->toArray());
+                        $rowData = $row->toArray();
+                        // Process each value in the row
+                        $processedRow = array_map($processNumericValue, $rowData);
+                        return array_combine($headers, $processedRow);
                     } catch (\Exception $e) {
                         \Log::error('Row processing error: ' . $e->getMessage());
                         \Log::error('Headers: ' . json_encode($headers));
@@ -98,7 +111,8 @@ class ExcelController extends Controller
             ->selectRaw('COUNT(*) AS count');
 
         if ($a) {
-            $q->selectRaw("SUM(CAST(JSON_EXTRACT(data, '$.\"{$a}\"') AS DECIMAL(10,2))) AS sum_{$a}")
+            // Remove thousand separators and convert to decimal
+            $q->selectRaw("SUM(CAST(REPLACE(JSON_UNQUOTE(JSON_EXTRACT(data, '$.\"{$a}\"')), ',', '') AS DECIMAL(20,2))) AS sum_{$a}")
               ->having("sum_{$a}", $op, $th);
         }
 
@@ -152,7 +166,8 @@ class ExcelController extends Controller
             }
 
             // Add aggregate value and count
-            $query->selectRaw("{$params['aggregateFunction']}(JSON_EXTRACT(data, '$.\"{$params['aggregateColumn']}\"')) AS aggregate_value")
+            // Remove thousand separators and convert to decimal for proper aggregation
+            $query->selectRaw("{$params['aggregateFunction']}(CAST(REPLACE(JSON_UNQUOTE(JSON_EXTRACT(data, '$.\"{$params['aggregateColumn']}\"')), ',', '') AS DECIMAL(20,2))) AS aggregate_value")
                   ->selectRaw('COUNT(*) AS count');
 
             // Group by all specified columns
