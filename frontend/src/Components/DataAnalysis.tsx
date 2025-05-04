@@ -437,11 +437,20 @@ const DataAnalysis: FC = () => {
         responseType: 'blob'
       });
 
+      // Create timestamp in YYYYMMDD_HHMMSS format
+      const now = new Date();
+      const timestamp = now.getFullYear().toString() +
+        String(now.getMonth() + 1).padStart(2, '0') +
+        String(now.getDate()).padStart(2, '0') + '_' +
+        String(now.getHours()).padStart(2, '0') +
+        String(now.getMinutes()).padStart(2, '0') +
+        String(now.getSeconds()).padStart(2, '0');
+
       // Create a URL for the blob
       const url = window.URL.createObjectURL(new Blob([response.data]));
       const link = document.createElement('a');
       link.href = url;
-      link.setAttribute('download', 'combined_analysis_results.xlsx');
+      link.setAttribute('download', `analysis_data_${timestamp}.xlsx`);
       document.body.appendChild(link);
       link.click();
       link.remove();
